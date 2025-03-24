@@ -35,7 +35,11 @@ boulder-comp-api/
 ├── docker-compose.yml    # Docker Compose configuration
 ├── Dockerfile            # Docker configuration for FastAPI app
 ├── Dockerfile.celery     # Docker configuration for Celery worker
-└── requirements.txt      # Dependencies
+├── requirements.txt      # Dependencies
+├── heroku.yml            # Heroku container deployment configuration
+├── Procfile              # Heroku process definitions (alternative to heroku.yml)
+├── app.json              # Heroku app configuration
+└── .dockerignore         # Files to exclude from Docker builds
 ```
 
 ## Setup and Installation
