@@ -1,0 +1,14 @@
+setup:
+  addons:
+    - plan: heroku-redis:hobby-dev
+      as: REDIS
+
+build:
+  docker:
+    web: Dockerfile
+    worker: Dockerfile.celery
+
+release:
+  command:
+    - echo "Released!"
+  image: web 

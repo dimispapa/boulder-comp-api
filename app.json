@@ -1,0 +1,32 @@
+{
+  "name": "Boulder Competition API",
+  "description": "API service for the Bouldering Festival Competition app, providing score calculation and 27crags data scraping capabilities.",
+  "repository": "https://github.com/dimispapa/boulder-comp-api",
+  "keywords": ["python", "fastapi", "celery", "redis", "supabase"],
+  "addons": ["heroku-redis:hobby-dev"],
+  "env": {
+    "SUPABASE_URL": {
+      "description": "Your Supabase project URL",
+      "required": true
+    },
+    "SUPABASE_KEY": {
+      "description": "Your Supabase API key",
+      "required": true
+    }
+  },
+  "formation": {
+    "web": {
+      "quantity": 1,
+      "size": "eco"
+    },
+    "worker": {
+      "quantity": 1,
+      "size": "eco"
+    }
+  },
+  "buildpacks": [
+    {
+      "url": "heroku/python"
+    }
+  ]
+} 
