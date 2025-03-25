@@ -42,6 +42,30 @@ boulder-comp-api/
 └── .dockerignore         # Files to exclude from Docker builds
 ```
 
+## Environment Variables
+
+Create a `.env` file in the root directory with the following variables:
+
+```
+# Supabase Configuration
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_KEY=your-api-key
+
+# Redis Configuration (for Celery)
+REDIS_URL=redis://localhost:6379/0
+
+# Development Environment
+DEBUG=True
+ENVIRONMENT=development
+
+# API Configuration
+API_PREFIX=/api
+API_HOST=0.0.0.0
+API_PORT=8000
+```
+
+For Heroku deployment, these variables should be set using the Heroku CLI or dashboard.
+
 ## Setup and Installation
 
 ### Option 1: Using Docker (Recommended)
@@ -52,15 +76,11 @@ boulder-comp-api/
    cd boulder-comp-api
    ```
 
-2. Copy the example environment file and configure:
-   ```bash
-   cp .env.example .env
-   # Edit .env with your Supabase credentials
-   ```
+2. Create the `.env` file as described in the Environment Variables section above
 
 3. Build and start the Docker containers:
    ```bash
-   docker-compose up -d
+   docker compose up -d
    ```
 
    This will start:
@@ -90,11 +110,7 @@ boulder-comp-api/
    pip install -r requirements.txt
    ```
 
-4. Copy the example environment file and configure:
-   ```bash
-   cp .env.example .env
-   # Edit .env with your Supabase credentials
-   ```
+4. Create the `.env` file as described in the Environment Variables section above
 
 5. Start Redis (required for Celery):
    ```bash
