@@ -182,7 +182,7 @@ For Heroku deployment, these variables should be set using the Heroku CLI or das
   docker stats
   ```
 
-# Database Design
+## Database Design
 
 ## 🗄️ Database Schema
 
@@ -190,81 +190,97 @@ For Heroku deployment, these variables should be set using the Heroku CLI or das
 
 #### `boulders`
 
-| Field        | Type         | Notes                        |
-|--------------|--------------|------------------------------|
-| `id`         | UUID / PK    | Unique boulder ID            |
-| `name`       | text         | Boulder name                 |
-| `url`        | text         | 27crags URL                  |
-| `sector`     | text         | Sector name                  |
-| `gps_coords` | text / point | Latitude and longitude       |
-| `created_at` | timestamp    | When added                   |
-| `updated_at` | timestamp    | Last updated                 |
+| Field         | Type         | Notes                                |
+|---------------|--------------|--------------------------------------|
+| `id`          | UUID / PK    | Unique boulder ID                    |
+| `name`        | text         | Boulder name                         |
+| `url`         | text         | 27crags URL                          |
+| `sector`      | text         | Sector name                          |
+| `gps_coords`  | text / point | Latitude and longitude               |
+| `created_at`  | timestamp    | When added                           |
+| `updated_at`  | timestamp    | Last updated                         |
 
 #### `boulder_photos`
 
-| Field        | Type         | Notes                                |
-|--------------|--------------|--------------------------------------|
-| `id`         | UUID / PK    | Unique photo ID                      |
-| `boulder_id` | FK → boulders.id | Linked boulder                  |
-| `url`        | text         | Hosted image URL                     |
-| `caption`    | text / null  | Optional description                 |
-| `order`      | integer      | Sort order (e.g. 1 = cover image)    |
+| Field        | Type         | Notes                                      |
+|--------------|--------------|--------------------------------------------|
+| `id`         | UUID / PK    | Unique photo ID                            |
+| `boulder_id` | FK → boulders.id | Linked boulder                        |
+| `url`        | text         | Hosted image URL (e.g. Supabase Storage)     |
+| `caption`    | text / null  | Optional description                       |
+| `order`      | integer      | Sort order (e.g. 1 = cover image)            |
 
 #### `routes`
 
-| Field        | Type         | Notes                                |
-|--------------|--------------|--------------------------------------|
-| `id`         | UUID / PK    | Unique route ID                      |
-| `boulder_id` | FK → boulders.id | Linked boulder                  |
-| `name`       | text         | Route name                           |
-| `url`        | text         | Route URL on 27crags                 |
-| `grade`      | text         | e.g. '6A+', '7B'                     |
-| `rating`     | float / null | Route rating                         |
-| `created_at` | timestamp    | When added                           |
-| `updated_at` | timestamp    | Last updated                         |
+| Field        | Type         | Notes                                    |
+|--------------|--------------|------------------------------------------|
+| `id`         | UUID / PK    | Unique route ID                          |
+| `boulder_id` | FK → boulders.id | Linked boulder                      |
+| `name`       | text         | Route name                               |
+| `url`        | text         | Route URL on 27crags                     |
+| `grade`      | text         | e.g. '6A+', '7B'                         |
+| `rating`     | float / null | Route rating                             |
+| `created_at` | timestamp    | When added                               |
+| `updated_at` | timestamp    | Last updated                             |
 
 ---
 
 ### 🧑‍🤝‍🧑 Competition Tables
 
+#### `competitions`
+
+| Field         | Type         | Notes                                                         |
+|---------------|--------------|---------------------------------------------------------------|
+| `id`          | UUID / PK    | Unique competition ID                                         |
+| `name`        | text         | Name of the competition (e.g. "May 2025 Club Comp")             |
+| `category`    | text         | Categories hosted (e.g. "marathon,boulder beasts")              |
+| `start_date`  | date         | Competition start date                                          |
+| `end_date`    | date         | Competition end date                                            |
+| `status`      | text         | e.g., "upcoming", "ongoing", "completed"                        |
+| `description` | text         | Details about the competition                                   |
+| `venue`       | text         | Location/venue of the event                                     |
+
 #### `teams`
 
-| Field          | Type         | Notes                                   |
-|----------------|--------------|-----------------------------------------|
-| `id`           | UUID / PK    | Unique team ID                          |
-| `name`         | text         | Team name                               |
-| `captain_id`   | FK → participants.id | Optional                         |
-| `category`     | text         | Always `'marathon'` for now             |
-| `paid`         | boolean      | Whether paid (entire team or by admin)  |
-| `club_signup`  | boolean      | If opted into club membership           |
-| `created_at`   | timestamp    | Signup time                             |
+| Field           | Type         | Notes                                                |
+|-----------------|--------------|------------------------------------------------------|
+| `id`            | UUID / PK    | Unique team ID                                       |
+| `competition_id`| FK → competitions.id | Competition this team is registered for      |
+| `name`          | text         | Team name                                            |
+| `captain_id`    | FK → participants.id | Optional (ID of the team captain)           |
+| `category`      | text         | Always `'marathon'` for team entries                 |
+| `paid`          | boolean      | Whether the team has been marked as paid             |
+| `club_signup`   | boolean      | If opted into club membership                        |
+| `created_at`    | timestamp    | Signup time                                          |
 
 #### `participants`
 
-| Field               | Type         | Notes                                 |
-|---------------------|--------------|---------------------------------------|
-| `id`                | UUID / PK    | Unique participant ID                 |
-| `first_name`        | text         | First name                            |
-| `last_name`         | text         | Last name                             |
-| `email`             | text         | Email address                         |
-| `team_id`           | FK → teams.id | Nullable if solo participant         |
-| `solo_entry`        | boolean      | True if entered Boulder Beasts solo   |
-| `club_member`       | boolean      | Current club member                   |
-| `membership_number` | text / null  | For free entry                        |
-| `paid`              | boolean      | Whether paid                          |
-| `created_at`        | timestamp    | Signup time                           |
+| Field               | Type         | Notes                                                         |
+|---------------------|--------------|---------------------------------------------------------------|
+| `id`                | UUID / PK    | Unique participant ID                                         |
+| `competition_id`    | FK → competitions.id | Competition this participant is registered for         |
+| `first_name`        | text         | First name                                                    |
+| `last_name`         | text         | Last name                                                     |
+| `email`             | text         | Email address                                                 |
+| `team_id`           | FK → teams.id | Nullable if solo participant                                  |
+| `solo_entry`        | boolean      | True if entered directly into Boulder Beasts (solo entry)       |
+| `club_member`       | boolean      | Whether a current club member                                 |
+| `membership_number` | text / null  | For free entry if applicable                                  |
+| `paid`              | boolean      | Whether payment is complete (solo or updated by admin)        |
+| `created_at`        | timestamp    | Signup time                                                   |
 
 #### `ascents`
 
-| Field         | Type         | Notes                                  |
-|---------------|--------------|----------------------------------------|
-| `id`          | UUID / PK    | Unique ascent ID                       |
-| `participant_id` | FK → participants.id | Who climbed it            |
-| `route_id`    | FK → routes.id | Route climbed                         |
-| `attempts`    | integer / null | Number of attempts (Boulder Beasts)   |
-| `sent`        | boolean      | True if completed                      |
-| `timestamp`   | timestamp    | Logged time                            |
-| `submitted`   | boolean      | Final submission status                |
+| Field           | Type         | Notes                                                |
+|-----------------|--------------|------------------------------------------------------|
+| `id`            | UUID / PK    | Unique ascent ID                                     |
+| `competition_id`| FK → competitions.id | Competition associated with this ascent       |
+| `participant_id`| FK → participants.id | Who climbed it                                  |
+| `route_id`      | FK → routes.id | Route climbed                                       |
+| `attempts`      | integer / null | Number of attempts (for scoring in Boulder Beasts)  |
+| `sent`          | boolean      | True if the climb was sent (completed)               |
+| `timestamp`     | timestamp    | Logged time                                          |
+| `submitted`     | boolean      | Whether the log is finalized (final submission)      |
 
 ---
 
@@ -272,37 +288,37 @@ For Heroku deployment, these variables should be set using the Heroku CLI or das
 
 #### `base_points`
 
-| Field          | Type         | Notes                            |
-|----------------|--------------|----------------------------------|
-| `grade`        | text         | e.g. '6A', '7B+'                 |
-| `points`       | integer      | Point value for this grade       |
-| `common_ratio` | float / null | Optional for extrapolations      |
+| Field          | Type         | Notes                              |
+|----------------|--------------|------------------------------------|
+| `grade`        | text         | e.g. '6A', '7B+'                   |
+| `points`       | integer      | Point value for this grade         |
+| `common_ratio` | float / null | Optional, for extrapolations       |
 
 #### `volume_bonus`
 
-| Field                | Type    | Notes                            |
-|----------------------|---------|----------------------------------|
-| `bonus_increment`    | integer | Every X ascents                 |
-| `points_per_increment` | integer | Points awarded per increment   |
+| Field                   | Type    | Notes                             |
+|-------------------------|---------|-----------------------------------|
+| `bonus_increment`       | integer | Ascents count increment (e.g. every 5)  |
+| `points_per_increment`  | integer | Points awarded per increment      |
 
 #### `unique_ascent_bonus`
 
-| Field         | Type   | Notes                                |
-|---------------|--------|--------------------------------------|
-| `bonus_factor`| float  | Multiplier for unique ascents (e.g. 1.0) |
+| Field          | Type   | Notes                                |
+|----------------|--------|--------------------------------------|
+| `bonus_factor` | float  | Multiplier for unique ascents (e.g. 1.0) |
 
 #### `team_ascent_bonus`
 
-| Field       | Type    | Notes                           |
-|-------------|---------|---------------------------------|
-| `team_size` | integer | 2, 3, or 4                      |
-| `bonus_factor` | float | e.g. 0.10 for 10% bonus        |
+| Field          | Type    | Notes                                 |
+|----------------|---------|---------------------------------------|
+| `team_size`    | integer | E.g. 2, 3, or 4                        |
+| `bonus_factor` | float   | E.g. 0.10 for 10% bonus                  |
 
 #### `master_grade_bonus`
 
-| Field         | Type  | Notes                                |
-|---------------|-------|--------------------------------------|
-| `bonus_factor`| float | e.g. 0.50 for 50% boost              |
+| Field          | Type  | Notes                                |
+|----------------|-------|--------------------------------------|
+| `bonus_factor` | float | E.g. 0.50 for a 50% bonus (for top team) |
 
 ---
 
@@ -310,39 +326,43 @@ For Heroku deployment, these variables should be set using the Heroku CLI or das
 
 #### `scored_ascents`
 
-| Field           | Type         | Notes                                |
-|-----------------|--------------|--------------------------------------|
-| `id`            | UUID / PK    | Optional or derived key              |
-| `ascent_id`     | FK → ascents.id | Original ascent                    |
-| `participant_id`| FK → participants.id | Climber                       |
-| `route_id`      | FK → routes.id | Route climbed                      |
-| `base_points`   | float        | From base_points                     |
-| `volume_bonus`  | float        | From volume_bonus                    |
-| `unique_bonus`  | float        | From unique ascent bonus             |
-| `total_points`  | float        | Final points for this ascent         |
-| `timestamp`     | timestamp    | Inherited from ascent                |
+| Field            | Type         | Notes                                         |
+|------------------|--------------|-----------------------------------------------|
+| `id`             | UUID / PK    | Unique key (or composite key with ascent_id)  |
+| `ascent_id`      | FK → ascents.id | Original ascent reference                  |
+| `participant_id` | FK → participants.id | Climber reference                      |
+| `route_id`       | FK → routes.id | Route reference                             |
+| `base_points`    | float        | Points from `base_points` table               |
+| `volume_bonus`   | float        | Bonus from `volume_bonus`                     |
+| `unique_bonus`   | float        | Bonus from `unique_ascent_bonus`              |
+| `total_points`   | float        | Sum of all points for this ascent             |
+| `timestamp`      | timestamp    | Inherited from the original ascent            |
 
 #### `marathon_rankings`
 
-| Field               | Type      | Notes                              |
-|---------------------|-----------|------------------------------------|
-| `team_id`           | FK → teams.id |                                 |
-| `base_score`        | float     | Sum of base points                 |
-| `volume_score`      | float     | Sum of volume bonuses              |
-| `unique_ascent_score` | float   | Unique ascents contribution        |
-| `team_ascent_bonus` | float     | Bonus for full team sends          |
-| `master_grade_bonus`| float     | Bonus for leading hardest grade    |
-| `total_score`       | float     | Final score                        |
-| `rank`              | integer   | Final standing                     |
+| Field                | Type      | Notes                                            |
+|----------------------|-----------|--------------------------------------------------|
+| `team_id`            | FK → teams.id | Team reference                               |
+| `base_score`         | float     | Sum of base points                               |
+| `volume_score`       | float     | Total volume bonus                               |
+| `unique_ascent_score`| float     | Sum of unique ascent bonuses                     |
+| `team_ascent_bonus`  | float     | Bonus for all team members climbing a route      |
+| `master_grade_bonus` | float     | Bonus for leading in a specific grade            |
+| `total_score`        | float     | Final aggregated score                           |
+| `rank`               | integer   | Final placement                                  |
 
 #### `boulder_beasts_rankings`
 
-| Field           | Type         | Notes                              |
-|------------------|--------------|------------------------------------|
-| `participant_id` | FK → participants.id |                        |
-| `top_grades`     | text[] / JSON | Top 5 grades (e.g. ['7A', ...])   |
-| `total_score`    | float        | Final score                        |
-| `rank`           | integer      | Final standing                     |
+| Field              | Type         | Notes                                               |
+|--------------------|--------------|-----------------------------------------------------|
+| `participant_id`   | FK → participants.id | Participant reference                       |
+| `top_grades`       | text[] / JSON | List of top 5 grades (e.g. `["7A", "7B+", ...]`)    |
+| `total_score`      | float        | Final score based on individual ascents            |
+| `rank`             | integer      | Final placement                                    |
+
+## Entity Relationship Diagram (ERD)
+
+![Entity Relationship Diagram](./docs/images/boulder-comp-api-erd.png)
 
 ## API Endpoints
 

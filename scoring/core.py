@@ -39,16 +39,18 @@ class ScoreCalculator:
             # Get all ascents for this competition
             ascents = await self._get_competition_ascents(comp_id)
 
-            # Calculate Marathon scores
-            marathon_scores = await self._calculate_marathon_scores(ascents)
+            # Calculate Marathon scores if category is enabled
+            marathon_scores = []
+            if 'marathon' in comp['categories']:
+                marathon_scores = await self._calculate_marathon_scores(ascents)
 
-            # Calculate Boulder Beasts scores
-            boulder_beasts_scores = await self._calculate_boulder_beasts_scores(
-                ascents)
+            # Calculate Boulder Beasts scores if category is enabled
+            boulder_beasts_scores = []
+            if 'boulder_beasts' in comp['categories']:
+                boulder_beasts_scores = await self._calculate_boulder_beasts_scores(ascents)
 
             # Store results in Supabase
-            await self._store_results(comp_id, marathon_scores,
-                                      boulder_beasts_scores)
+            await self._store_results(comp_id, marathon_scores, boulder_beasts_scores)
 
             return {
                 "marathon": marathon_scores,
@@ -61,25 +63,22 @@ class ScoreCalculator:
 
     async def _get_competition(self, comp_id: str) -> Optional[Dict[str, Any]]:
         """Get competition details from Supabase."""
-        result = self.supabase.table('competitions').select('*').eq(
-            'id', comp_id).execute()
+        result = self.supabase.table('competitions').select('*').eq('id', comp_id).execute()
 
         if not result.data:
             return None
 
         return result.data[0]
 
-    async def _get_competition_ascents(self,
-                                       comp_id: str) -> List[Dict[str, Any]]:
+    async def _get_competition_ascents(self, comp_id: str) -> List[Dict[str, Any]]:
         """Get all ascents for a competition with related data."""
         result = self.supabase.table('ascents').select(
-            'ascents.*, participants.*, routes.*, teams.*').eq(
-                'competition_id', comp_id).execute()
+            'ascents.*, participants.*, routes.*, teams.*'
+        ).eq('competition_id', comp_id).execute()
 
         return result.data
 
-    async def _calculate_marathon_scores(
-            self, ascents: List[Dict[str, Any]]) -> Dict[str, Any]:
+    async def _calculate_marathon_scores(self, ascents: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Calculate scores for the Marathon category."""
         # Group ascents by team
         team_scores = {}
@@ -129,25 +128,23 @@ class ScoreCalculator:
         for team_id, data in team_scores.items():
             team_size = len(set(a['participant_id'] for a in data['ascents']))
             if team_size in team_bonus_config:
-                data['team_ascent_bonus'] = data[
-                    'base_score'] * team_bonus_config[team_size]
+                data['team_ascent_bonus'] = data['base_score'] * team_bonus_config[team_size]
 
         # Calculate master grade bonus
         master_grade_config = await self._get_master_grade_bonus_config()
         for team_id, data in team_scores.items():
             hardest_grade = max((a['grade'] for a in data['ascents']),
-                                key=lambda g: self._grade_to_number(g))
+                              key=lambda g: self._grade_to_number(g))
             if hardest_grade in master_grade_config:
-                data['master_grade_bonus'] = data[
-                    'base_score'] * master_grade_config[hardest_grade]
+                data['master_grade_bonus'] = data['base_score'] * master_grade_config[hardest_grade]
 
         # Calculate total scores and create rankings
         rankings = []
         for team_id, data in team_scores.items():
             data['total_score'] = (data['base_score'] + data['volume_score'] +
-                                   data['unique_ascent_score'] +
-                                   data['team_ascent_bonus'] +
-                                   data['master_grade_bonus'])
+                                 data['unique_ascent_score'] +
+                                 data['team_ascent_bonus'] +
+                                 data['master_grade_bonus'])
             rankings.append(data)
 
         # Sort by total score
@@ -159,21 +156,23 @@ class ScoreCalculator:
 
         return rankings
 
-    async def _calculate_boulder_beasts_scores(
-            self, ascents: List[Dict[str, Any]]) -> Dict[str, Any]:
+    async def _calculate_boulder_beasts_scores(self, ascents: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Calculate scores for the Boulder Beasts category."""
         # Group ascents by participant
         participant_scores = {}
 
         for ascent in ascents:
             participant_id = ascent['participant_id']
+            
+            # Skip if participant is not enrolled in Boulder Beasts
+            if not ascent.get('participants', {}).get('boulder_beasts_enrolled'):
+                continue
+
             if participant_id not in participant_scores:
                 participant_scores[participant_id] = {
                     'participant_id': participant_id,
-                    'first_name': ascent.get('participants',
-                                             {}).get('first_name'),
-                    'last_name': ascent.get('participants',
-                                            {}).get('last_name'),
+                    'first_name': ascent.get('participants', {}).get('first_name'),
+                    'last_name': ascent.get('participants', {}).get('last_name'),
                     'ascents': [],
                     'top_grades': []
                 }
@@ -195,7 +194,7 @@ class ScoreCalculator:
 
             # Calculate total score based on top 5 ascents
             data['total_score'] = sum(await self._get_base_points(a['grade'])
-                                      for a in sorted_ascents[:5])
+                                    for a in sorted_ascents[:5])
 
             rankings.append(data)
 
@@ -210,8 +209,7 @@ class ScoreCalculator:
 
     async def _get_base_points(self, grade: str) -> int:
         """Get base points for a grade from the base_points table."""
-        result = self.supabase.table('base_points').select('points').eq(
-            'grade', grade).execute()
+        result = self.supabase.table('base_points').select('points').eq('grade', grade).execute()
 
         if not result.data:
             return 0
@@ -238,8 +236,7 @@ class ScoreCalculator:
 
     async def _get_master_grade_bonus_config(self) -> Dict[str, float]:
         """Get master grade bonus configuration."""
-        result = self.supabase.table('master_grade_bonus').select(
-            '*').execute()
+        result = self.supabase.table('master_grade_bonus').select('*').execute()
 
         if not result.data:
             return {'8A': 0.50, '8A+': 0.75, '8B': 1.00}
@@ -267,9 +264,8 @@ class ScoreCalculator:
 
         return value
 
-    async def _store_results(
-            self, comp_id: str, marathon_scores: List[Dict[str, Any]],
-            boulder_beasts_scores: List[Dict[str, Any]]) -> None:
+    async def _store_results(self, comp_id: str, marathon_scores: List[Dict[str, Any]],
+                           boulder_beasts_scores: List[Dict[str, Any]]) -> None:
         """Store competition results in Supabase."""
         # Store Marathon rankings
         for rank in marathon_scores:
@@ -285,8 +281,7 @@ class ScoreCalculator:
                 'rank': rank['rank'],
                 'timestamp': datetime.now().isoformat()
             }
-            self.supabase.table('marathon_rankings').upsert(
-                marathon_data).execute()
+            self.supabase.table('marathon_rankings').upsert(marathon_data).execute()
 
         # Store Boulder Beasts rankings
         for rank in boulder_beasts_scores:
@@ -298,5 +293,4 @@ class ScoreCalculator:
                 'rank': rank['rank'],
                 'timestamp': datetime.now().isoformat()
             }
-            self.supabase.table('boulder_beasts_rankings').upsert(
-                boulder_beasts_data).execute()
+            self.supabase.table('boulder_beasts_rankings').upsert(boulder_beasts_data).execute()

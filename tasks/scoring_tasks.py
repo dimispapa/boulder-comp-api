@@ -7,7 +7,7 @@ from supabase import create_client
 import os
 from dotenv import load_dotenv
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -23,19 +23,41 @@ score_calculator = ScoreCalculator(supabase)
 
 
 @celery_app.task(bind=True, name="scoring.calculate_scores")
-async def calculate_scores(self, comp_id: str):
+async def calculate_scores(self, comp_id: str, category: Optional[str] = None):
     """
     Celery task to calculate scores for a competition.
     
     Args:
         comp_id (str): ID of the competition
+        category (str, optional): Filter by category ("marathon" or "boulder_beasts")
         
     Returns:
         dict: Status and result of the score calculation
     """
     try:
+        # Get competition details to validate categories
+        comp = await score_calculator._get_competition(comp_id)
+        if not comp:
+            return {"status": "error", "detail": f"Competition {comp_id} not found"}
+
+        # Validate category if specified
+        if category and category not in comp['categories']:
+            return {
+                "status": "error",
+                "detail": f"Category {category} not enabled for this competition"
+            }
+
         # Calculate scores
         rankings = await score_calculator.calculate_scores(comp_id)
+
+        # Filter by category if specified
+        if category:
+            if category == "marathon":
+                return {"status": "success", "rankings": rankings["marathon"]}
+            elif category == "boulder_beasts":
+                return {"status": "success", "rankings": rankings["boulder_beasts"]}
+            else:
+                return {"status": "error", "detail": f"Invalid category: {category}"}
 
         return {"status": "success", "rankings": rankings}
 
