@@ -188,6 +188,17 @@ For Heroku deployment, these variables should be set using the Heroku CLI or das
 
 ### 🧗 Bouldering Data Tables
 
+#### `sectors`
+
+| Field         | Type         | Notes                                |
+|---------------|--------------|--------------------------------------|
+| `id`          | UUID / PK    | Unique sector ID                     |
+| `name`        | text         | Unique sector name                   |
+| `description` | text / null  | Optional sector description          |
+| `gps_coords`  | text / point | Sector's geographical coordinates     |
+| `created_at`  | timestamp    | When added                           |
+| `updated_at`  | timestamp    | Last updated                         |
+
 #### `boulders`
 
 | Field         | Type         | Notes                                |
@@ -195,8 +206,8 @@ For Heroku deployment, these variables should be set using the Heroku CLI or das
 | `id`          | UUID / PK    | Unique boulder ID                    |
 | `name`        | text         | Boulder name                         |
 | `url`         | text         | 27crags URL                          |
-| `sector`      | text         | Sector name                          |
-| `gps_coords`  | text / point | Latitude and longitude               |
+| `sector_id`   | FK → sectors.id | Reference to sector              |
+| `gps_coords`  | text / point | Boulder's geographical coordinates   |
 | `created_at`  | timestamp    | When added                           |
 | `updated_at`  | timestamp    | Last updated                         |
 
@@ -250,7 +261,6 @@ For Heroku deployment, these variables should be set using the Heroku CLI or das
 | `captain_id`    | FK → participants.id | Optional (ID of the team captain)           |
 | `category`      | text         | Always `'marathon'` for team entries                 |
 | `paid`          | boolean      | Whether the team has been marked as paid             |
-| `club_signup`   | boolean      | If opted into club membership                        |
 | `created_at`    | timestamp    | Signup time                                          |
 
 #### `participants`
@@ -277,8 +287,6 @@ For Heroku deployment, these variables should be set using the Heroku CLI or das
 | `competition_id`| FK → competitions.id | Competition associated with this ascent       |
 | `participant_id`| FK → participants.id | Who climbed it                                  |
 | `route_id`      | FK → routes.id | Route climbed                                       |
-| `attempts`      | integer / null | Number of attempts (for scoring in Boulder Beasts)  |
-| `sent`          | boolean      | True if the climb was sent (completed)               |
 | `timestamp`     | timestamp    | Logged time                                          |
 | `submitted`     | boolean      | Whether the log is finalized (final submission)      |
 
@@ -292,7 +300,7 @@ For Heroku deployment, these variables should be set using the Heroku CLI or das
 |----------------|--------------|------------------------------------|
 | `grade`        | text         | e.g. '6A', '7B+'                   |
 | `points`       | integer      | Point value for this grade         |
-| `common_ratio` | float / null | Optional, for extrapolations       |
+| `increment_factor` | float / null | Optional, for extrapolations       |
 
 #### `volume_bonus`
 
@@ -318,7 +326,7 @@ For Heroku deployment, these variables should be set using the Heroku CLI or das
 
 | Field          | Type  | Notes                                |
 |----------------|-------|--------------------------------------|
-| `bonus_factor` | float | E.g. 0.50 for a 50% bonus (for top team) |
+| `bonus_factor` | float | 50% bonus for team with most ascents in a grade category |
 
 ---
 
