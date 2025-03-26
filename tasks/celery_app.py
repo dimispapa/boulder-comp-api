@@ -1,34 +1,30 @@
+"""
+Celery app configuration.
+"""
 from celery import Celery
 import os
 from dotenv import load_dotenv
 
+# Load environment variables
 load_dotenv()
 
-# Get Redis URL - Heroku sets this as REDIS_URL
-redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+# Create Celery app
+celery_app = Celery('boulder_comp_api',
+                    broker=os.getenv('REDIS_URL', 'redis://localhost:6379/0'),
+                    backend=os.getenv('REDIS_URL', 'redis://localhost:6379/0'),
+                    include=['tasks.scraper_tasks', 'tasks.scoring_tasks'])
 
-# Heroku Redis URLs start with redis://, but we need to support both
-if redis_url.startswith('redis://'):
-    broker_url = redis_url
-    backend_url = redis_url
-else:
-    broker_url = redis_url
-    backend_url = redis_url
-
-celery_app = Celery(
-    'boulder_comp_tasks',
-    broker=broker_url,
-    backend=backend_url
-)
-
-# Optional configuration
+# Configure Celery
 celery_app.conf.update(
     task_serializer='json',
     accept_content=['json'],
     result_serializer='json',
     timezone='UTC',
     enable_utc=True,
-)
+    task_track_started=True,
+    task_time_limit=3600,  # 1 hour
+    worker_max_tasks_per_child=100,
+    broker_connection_retry_on_startup=True)
 
 # Auto-discover tasks in the 'tasks' directory
 celery_app.autodiscover_tasks(['tasks'], force=True)

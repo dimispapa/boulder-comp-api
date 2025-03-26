@@ -1,50 +1,55 @@
-from .celery_app import celery_app
-import logging
-from typing import Dict, Any
+"""
+Celery tasks for scraping data from 27crags.
+"""
+from tasks.celery_app import celery_app
+from scraper.core import CragScraper
+from supabase import create_client
+import os
+from dotenv import load_dotenv
 
-# Set up logging
-logger = logging.getLogger(__name__)
+# Load environment variables
+load_dotenv()
+
+# Initialize Supabase client
+supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
+
+# Default headers for 27crags
+HEADERS = {
+    'User-Agent': ('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+                   'AppleWebKit/537.36 (KHTML, like Gecko) '
+                   'Chrome/126.0.0.0 Safari/537.36')
+}
 
 
-@celery_app.task(bind=True, name="scraper.scrape_crag_data")
-def scrape_crag_data(self,
-                     crag_url: str,
-                     update_db: bool = True) -> Dict[str, Any]:
+@celery_app.task(bind=True)
+async def scrape_crag_data(self, crag_url: str):
     """
-    Task to scrape boulder data from 27crags.
+    Celery task to scrape data from a 27crags crag page.
     
     Args:
-        crag_url: URL of the crag to scrape
-        update_db: Whether to update the Supabase database with the scraped data
+        crag_url (str): URL of the crag to scrape
         
     Returns:
-        Dict containing the scraping results or error message
+        dict: Status and result of the scraping operation
     """
     try:
-        logger.info(f"Starting scraping task for {crag_url}")
+        # Initialize scraper
+        scraper = CragScraper(HEADERS, supabase)
 
-        # TODO: Implement the actual scraping logic
-        # This is where you'll integrate your existing scraper code
-        # from your crag-leader project
+        # Login with credentials from environment
+        username = os.getenv("27CRAGS_USERNAME")
+        password = os.getenv("27CRAGS_PASSWORD")
 
-        # Placeholder for scraping implementation
-        scraped_data = {
-            "status": "success",
-            "message": f"Scraped data from {crag_url}",
-            "data": {
-                "boulders": ["Example Boulder 1", "Example Boulder 2"],
-                "total_count": 2
-            }
-        }
+        if not username or not password:
+            return {"status": "error", "detail": "Missing 27crags credentials"}
 
-        # TODO: If update_db is True, update the Supabase database
-        # with the scraped data
+        if not await scraper.login(username, password):
+            return {"status": "error", "detail": "Failed to login to 27crags"}
 
-        logger.info(f"Scraping task completed for {crag_url}")
-        return scraped_data
+        # Start scraping
+        data = await scraper.scrape_crag(crag_url)
+
+        return {"status": "success", "data": data}
 
     except Exception as e:
-        logger.error(f"Error in scraping task: {str(e)}")
-        # Use Celery's retry mechanism
-        self.retry(exc=e, countdown=60, max_retries=3)
-        return {"status": "error", "message": str(e)}
+        return {"status": "error", "detail": str(e)}
