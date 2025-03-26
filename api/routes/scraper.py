@@ -1,104 +1,101 @@
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
-from pydantic import BaseModel, HttpUrl
-from typing import Dict, Any, Optional
-from tasks.scraper_tasks import scrape_crag_data
-import logging
+"""
+FastAPI router for the scraping endpoints.
+"""
+from fastapi import APIRouter, HTTPException, BackgroundTasks
+from supabase import create_client
+import os
+from scraper.core import CragScraper
+from celery import shared_task
 
-# Set up logging
-logger = logging.getLogger(__name__)
-
-# Initialize router
 router = APIRouter()
 
+# Initialize Supabase client
+supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 
-# Request models
-class ScrapeRequest(BaseModel):
-    crag_url: HttpUrl
-    update_db: bool = True
-    crag_name: Optional[str] = None
-
-
-# Response models
-class ScrapeResponse(BaseModel):
-    task_id: str
-    status: str
-    message: str
+# Default headers for 27crags
+HEADERS = {
+    'User-Agent': ('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+                   'AppleWebKit/537.36 (KHTML, like Gecko) '
+                   'Chrome/126.0.0.0 Safari/537.36')
+}
 
 
-@router.post("/scrape", response_model=ScrapeResponse)
-async def start_scraping(request: ScrapeRequest,
-                         background_tasks: BackgroundTasks) -> Dict[str, Any]:
+@shared_task
+async def scrape_crag_task(crag_url: str):
+    """Celery task to scrape a crag."""
+    try:
+        scraper = CragScraper(HEADERS, supabase)
+
+        # Login with credentials from environment
+        username = os.getenv("27CRAGS_USERNAME")
+        password = os.getenv("27CRAGS_PASSWORD")
+
+        if not username or not password:
+            raise HTTPException(status_code=500,
+                                detail="Missing 27crags credentials")
+
+        if not await scraper.login(username, password):
+            raise HTTPException(status_code=500,
+                                detail="Failed to login to 27crags")
+
+        # Start scraping
+        await scraper.scrape_crag(crag_url)
+        return {"status": "success"}
+
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+
+
+@router.post("/start")
+async def start_scraping(
+        background_tasks: BackgroundTasks,
+        crag_url: str = "https://27crags.com/crags/inia-droushia"):
     """
-    Start a scraping task to extract boulder data from 27crags.
+    Start scraping a crag from 27crags.com.
     
-    The task runs asynchronously in the background.
+    Args:
+        crag_url (str): URL of the crag to scrape. Defaults to Inia & Droushia.
+        
+    Returns:
+        dict: Status of the scraping task
     """
     try:
-        # Convert HttpUrl to string for task input
-        crag_url = str(request.crag_url)
-
-        # Queue the task
-        task = scrape_crag_data.delay(crag_url, request.update_db)
-
-        logger.info(
-            f"Scraping task initiated for {crag_url} with task ID: {task.id}")
+        # Queue the scraping task
+        task = scrape_crag_task.delay(crag_url)
 
         return {
-            "task_id": task.id,
-            "status": "initiated",
-            "message": f"Scraping task for {crag_url} started successfully"
+            "status": "success",
+            "message": "Scraping task started",
+            "task_id": task.id
         }
 
     except Exception as e:
-        logger.error(f"Error starting scraping task: {str(e)}")
         raise HTTPException(status_code=500,
-                            detail=f"Failed to start scraping task: {str(e)}")
+                            detail=f"Failed to start scraping: {str(e)}")
 
 
-@router.get("/task/{task_id}", response_model=Dict[str, Any])
-async def get_task_status(task_id: str) -> Dict[str, Any]:
+@router.get("/status/{task_id}")
+async def get_scraping_status(task_id: str):
     """
-    Check the status of a scraping task by task ID.
+    Get the status of a scraping task.
+    
+    Args:
+        task_id (str): ID of the task to check
+        
+    Returns:
+        dict: Current status of the task
     """
     try:
-        # Get task result
-        task = scrape_crag_data.AsyncResult(task_id)
+        task = scrape_crag_task.AsyncResult(task_id)
 
-        if task.state == 'PENDING':
-            response = {
-                "task_id": task_id,
-                "status": "pending",
-                "message": "Task is pending execution"
-            }
-        elif task.state == 'STARTED':
-            response = {
-                "task_id": task_id,
-                "status": "in_progress",
-                "message": "Task is currently in progress"
-            }
-        elif task.state == 'SUCCESS':
-            response = {
-                "task_id": task_id,
-                "status": "completed",
-                "message": "Task completed successfully",
-                "result": task.result
-            }
-        elif task.state == 'FAILURE':
-            response = {
-                "task_id": task_id,
-                "status": "failed",
-                "message": f"Task failed: {str(task.result)}",
-            }
+        if task.ready():
+            if task.successful():
+                return {"status": "completed", "result": task.result}
+            else:
+                return {"status": "failed", "error": str(task.result)}
         else:
-            response = {
-                "task_id": task_id,
-                "status": task.state,
-                "message": "Task status unknown"
-            }
-
-        return response
+            return {"status": "in_progress"}
 
     except Exception as e:
-        logger.error(f"Error checking task status: {str(e)}")
         raise HTTPException(status_code=500,
                             detail=f"Failed to get task status: {str(e)}")

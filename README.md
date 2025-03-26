@@ -46,7 +46,7 @@ boulder-comp-api/
 
 Create a `.env` file in the root directory with the following variables:
 
-```
+```env
 # Supabase Configuration
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_KEY=your-api-key
@@ -71,6 +71,7 @@ For Heroku deployment, these variables should be set using the Heroku CLI or das
 ### Option 1: Using Docker (Recommended)
 
 1. Clone the repository:
+
    ```bash
    git clone https://github.com/yourusername/boulder-comp-api.git
    cd boulder-comp-api
@@ -79,12 +80,13 @@ For Heroku deployment, these variables should be set using the Heroku CLI or das
 2. Create the `.env` file as described in the Environment Variables section above
 
 3. Build and start the Docker containers:
+
    ```bash
    docker compose up -d
    ```
 
    This will start:
-   - FastAPI application (accessible at http://localhost:8000)
+   - FastAPI application (accessible at <http://localhost:8000>)
    - Celery worker for background tasks
    - Redis for message brokering
 
@@ -94,18 +96,21 @@ For Heroku deployment, these variables should be set using the Heroku CLI or das
 ### Option 2: Local Development
 
 1. Clone the repository:
+
    ```bash
    git clone https://github.com/yourusername/boulder-comp-api.git
    cd boulder-comp-api
    ```
 
 2. Set up a virtual environment:
+
    ```bash
    python -m venv .venv
    source .venv/bin/activate  # On Windows: .venv\Scripts\activate
    ```
 
 3. Install dependencies:
+
    ```bash
    pip install -r requirements.txt
    ```
@@ -113,6 +118,7 @@ For Heroku deployment, these variables should be set using the Heroku CLI or das
 4. Create the `.env` file as described in the Environment Variables section above
 
 5. Start Redis (required for Celery):
+
    ```bash
    # Using Docker
    docker run -d -p 6379:6379 redis
@@ -120,11 +126,13 @@ For Heroku deployment, these variables should be set using the Heroku CLI or das
    ```
 
 6. Start the FastAPI server:
+
    ```bash
    uvicorn main:app --reload
    ```
 
 7. Start the Celery worker:
+
    ```bash
    celery -A tasks worker --loglevel=info
    ```
@@ -132,40 +140,209 @@ For Heroku deployment, these variables should be set using the Heroku CLI or das
 ## Docker Commands
 
 - Start all services:
+
   ```bash
   docker-compose up -d
   ```
 
 - View logs:
+
   ```bash
   docker-compose logs -f
   ```
 
 - Rebuild services after making changes:
+
   ```bash
   docker-compose up -d --build
   ```
 
 - Stop all services:
+
   ```bash
   docker-compose down
   ```
 
 - Access a container's shell:
+
   ```bash
   docker-compose exec api bash
   docker-compose exec celery-worker bash
   ```
 
 - View running containers:
+
   ```bash
   docker-compose ps
   ```
 
 - Check container resource usage:
+
   ```bash
   docker stats
   ```
+
+# Database Design
+
+## 🗄️ Database Schema
+
+### 🧗 Bouldering Data Tables
+
+#### `boulders`
+
+| Field        | Type         | Notes                        |
+|--------------|--------------|------------------------------|
+| `id`         | UUID / PK    | Unique boulder ID            |
+| `name`       | text         | Boulder name                 |
+| `url`        | text         | 27crags URL                  |
+| `sector`     | text         | Sector name                  |
+| `gps_coords` | text / point | Latitude and longitude       |
+| `created_at` | timestamp    | When added                   |
+| `updated_at` | timestamp    | Last updated                 |
+
+#### `boulder_photos`
+
+| Field        | Type         | Notes                                |
+|--------------|--------------|--------------------------------------|
+| `id`         | UUID / PK    | Unique photo ID                      |
+| `boulder_id` | FK → boulders.id | Linked boulder                  |
+| `url`        | text         | Hosted image URL                     |
+| `caption`    | text / null  | Optional description                 |
+| `order`      | integer      | Sort order (e.g. 1 = cover image)    |
+
+#### `routes`
+
+| Field        | Type         | Notes                                |
+|--------------|--------------|--------------------------------------|
+| `id`         | UUID / PK    | Unique route ID                      |
+| `boulder_id` | FK → boulders.id | Linked boulder                  |
+| `name`       | text         | Route name                           |
+| `url`        | text         | Route URL on 27crags                 |
+| `grade`      | text         | e.g. '6A+', '7B'                     |
+| `rating`     | float / null | Route rating                         |
+| `created_at` | timestamp    | When added                           |
+| `updated_at` | timestamp    | Last updated                         |
+
+---
+
+### 🧑‍🤝‍🧑 Competition Tables
+
+#### `teams`
+
+| Field          | Type         | Notes                                   |
+|----------------|--------------|-----------------------------------------|
+| `id`           | UUID / PK    | Unique team ID                          |
+| `name`         | text         | Team name                               |
+| `captain_id`   | FK → participants.id | Optional                         |
+| `category`     | text         | Always `'marathon'` for now             |
+| `paid`         | boolean      | Whether paid (entire team or by admin)  |
+| `club_signup`  | boolean      | If opted into club membership           |
+| `created_at`   | timestamp    | Signup time                             |
+
+#### `participants`
+
+| Field               | Type         | Notes                                 |
+|---------------------|--------------|---------------------------------------|
+| `id`                | UUID / PK    | Unique participant ID                 |
+| `first_name`        | text         | First name                            |
+| `last_name`         | text         | Last name                             |
+| `email`             | text         | Email address                         |
+| `team_id`           | FK → teams.id | Nullable if solo participant         |
+| `solo_entry`        | boolean      | True if entered Boulder Beasts solo   |
+| `club_member`       | boolean      | Current club member                   |
+| `membership_number` | text / null  | For free entry                        |
+| `paid`              | boolean      | Whether paid                          |
+| `created_at`        | timestamp    | Signup time                           |
+
+#### `ascents`
+
+| Field         | Type         | Notes                                  |
+|---------------|--------------|----------------------------------------|
+| `id`          | UUID / PK    | Unique ascent ID                       |
+| `participant_id` | FK → participants.id | Who climbed it            |
+| `route_id`    | FK → routes.id | Route climbed                         |
+| `attempts`    | integer / null | Number of attempts (Boulder Beasts)   |
+| `sent`        | boolean      | True if completed                      |
+| `timestamp`   | timestamp    | Logged time                            |
+| `submitted`   | boolean      | Final submission status                |
+
+---
+
+### 📊 Scoring Configuration Tables
+
+#### `base_points`
+
+| Field          | Type         | Notes                            |
+|----------------|--------------|----------------------------------|
+| `grade`        | text         | e.g. '6A', '7B+'                 |
+| `points`       | integer      | Point value for this grade       |
+| `common_ratio` | float / null | Optional for extrapolations      |
+
+#### `volume_bonus`
+
+| Field                | Type    | Notes                            |
+|----------------------|---------|----------------------------------|
+| `bonus_increment`    | integer | Every X ascents                 |
+| `points_per_increment` | integer | Points awarded per increment   |
+
+#### `unique_ascent_bonus`
+
+| Field         | Type   | Notes                                |
+|---------------|--------|--------------------------------------|
+| `bonus_factor`| float  | Multiplier for unique ascents (e.g. 1.0) |
+
+#### `team_ascent_bonus`
+
+| Field       | Type    | Notes                           |
+|-------------|---------|---------------------------------|
+| `team_size` | integer | 2, 3, or 4                      |
+| `bonus_factor` | float | e.g. 0.10 for 10% bonus        |
+
+#### `master_grade_bonus`
+
+| Field         | Type  | Notes                                |
+|---------------|-------|--------------------------------------|
+| `bonus_factor`| float | e.g. 0.50 for 50% boost              |
+
+---
+
+### 🧮 Scoring Result Tables
+
+#### `scored_ascents`
+
+| Field           | Type         | Notes                                |
+|-----------------|--------------|--------------------------------------|
+| `id`            | UUID / PK    | Optional or derived key              |
+| `ascent_id`     | FK → ascents.id | Original ascent                    |
+| `participant_id`| FK → participants.id | Climber                       |
+| `route_id`      | FK → routes.id | Route climbed                      |
+| `base_points`   | float        | From base_points                     |
+| `volume_bonus`  | float        | From volume_bonus                    |
+| `unique_bonus`  | float        | From unique ascent bonus             |
+| `total_points`  | float        | Final points for this ascent         |
+| `timestamp`     | timestamp    | Inherited from ascent                |
+
+#### `marathon_rankings`
+
+| Field               | Type      | Notes                              |
+|---------------------|-----------|------------------------------------|
+| `team_id`           | FK → teams.id |                                 |
+| `base_score`        | float     | Sum of base points                 |
+| `volume_score`      | float     | Sum of volume bonuses              |
+| `unique_ascent_score` | float   | Unique ascents contribution        |
+| `team_ascent_bonus` | float     | Bonus for full team sends          |
+| `master_grade_bonus`| float     | Bonus for leading hardest grade    |
+| `total_score`       | float     | Final score                        |
+| `rank`              | integer   | Final standing                     |
+
+#### `boulder_beasts_rankings`
+
+| Field           | Type         | Notes                              |
+|------------------|--------------|------------------------------------|
+| `participant_id` | FK → participants.id |                        |
+| `top_grades`     | text[] / JSON | Top 5 grades (e.g. ['7A', ...])   |
+| `total_score`    | float        | Final score                        |
+| `rank`           | integer      | Final standing                     |
 
 ## API Endpoints
 
@@ -193,22 +370,26 @@ This API is designed to be deployed using Docker:
 ### Heroku
 
 1. Install the Heroku CLI and login:
+
    ```bash
    brew install heroku
    heroku login
    ```
 
 2. Create a new Heroku app:
+
    ```bash
    heroku create your-app-name
    ```
 
 3. Add Redis add-on:
+
    ```bash
    heroku addons:create heroku-redis:hobby-dev -a your-app-name
    ```
 
 4. Set environment variables:
+
    ```bash
    heroku config:set SUPABASE_URL=your_url
    heroku config:set SUPABASE_KEY=your_key
@@ -216,26 +397,31 @@ This API is designed to be deployed using Docker:
    ```
 
 5. Enable the container stack:
+
    ```bash
    heroku stack:set container -a your-app-name
    ```
 
 6. Login to Heroku Container Registry:
+
    ```bash
    heroku container:login
    ```
 
 7. Deploy the app:
+
    ```bash
    git push heroku main
    ```
 
 8. Scale dynos:
+
    ```bash
    heroku ps:scale web=1 worker=1
    ```
 
 9. View logs:
+
    ```bash
    heroku logs --tail
    ```
@@ -243,6 +429,7 @@ This API is designed to be deployed using Docker:
 #### Custom Domain and SSL
 
 1. Add your custom domain to Heroku:
+
    ```bash
    heroku domains:add www.yourdomain.com -a your-app-name
    ```
@@ -252,11 +439,13 @@ This API is designed to be deployed using Docker:
    - For apex domains, use DNS provider's ALIAS/ANAME record or Heroku's DNS service
 
 3. Enable Automatic Certificate Management (ACM) for SSL:
+
    ```bash
    heroku certs:auto:enable -a your-app-name
    ```
 
 4. Check certificate status:
+
    ```bash
    heroku certs:auto -a your-app-name
    ```
@@ -264,16 +453,19 @@ This API is designed to be deployed using Docker:
 #### Troubleshooting
 
 - Restart dynos:
+
   ```bash
   heroku dyno:restart -a your-app-name
   ```
 
 - Check running dynos:
+
   ```bash
   heroku ps -a your-app-name
   ```
 
 - View detailed logs:
+
   ```bash
   heroku logs --tail --source app -a your-app-name
   ```
@@ -281,6 +473,7 @@ This API is designed to be deployed using Docker:
 #### Monitoring and Logging
 
 1. Set up application monitoring with Heroku add-ons:
+
    ```bash
    # New Relic for application performance monitoring
    heroku addons:create newrelic:wayne -a your-app-name
@@ -290,6 +483,7 @@ This API is designed to be deployed using Docker:
    ```
 
 2. Configure custom metrics with Heroku metrics:
+
    ```bash
    # Enable Heroku metrics
    heroku labs:enable runtime-metrics -a your-app-name
@@ -299,12 +493,14 @@ This API is designed to be deployed using Docker:
    ```
 
 3. Set up alerts for important events:
+
    ```bash
    # Using Librato for metric alerts
    heroku addons:create librato:development -a your-app-name
    ```
 
 4. Access application metrics dashboards:
+
    ```bash
    # Open metrics dashboard
    heroku addons:open librato -a your-app-name
@@ -318,9 +514,11 @@ This API is designed to be deployed using Docker:
 - **Environment Variables**: Always use environment variables for configuration (credentials, URLs, etc.) instead of hardcoding values
 - **Container Images**: Use specific version tags for base images (e.g., `python:3.12-slim` instead of `python:latest`)
 - **Image Cleanup**: Periodically clean up unused images to save disk space:
+
   ```bash
   docker image prune -a
   ```
+
 - **Health Checks**: Consider adding health checks to your containers to ensure they're running correctly
 - **Volumes for Persistent Data**: Use Docker volumes for any data that needs to persist between container restarts
 - **Network Security**: Configure container networks to only expose necessary ports
