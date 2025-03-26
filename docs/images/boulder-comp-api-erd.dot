@@ -1,0 +1,92 @@
+digraph BoulderCompAPI {
+    // Graph settings
+    rankdir=LR;
+    node [shape=record, style=filled, fillcolor=lightblue];
+    edge [color=black, penwidth=1.5];
+    
+    // Bouldering Data Tables
+    subgraph cluster_0 {
+        label="Bouldering Data";
+        style=filled;
+        color=lightgrey;
+        margin=20;
+        
+        sectors [label="{sectors|id: UUID\lname: text\ldescription: text\lgps_coords: point\lcreated_at: timestamp\lupdated_at: timestamp}"];
+        
+        boulders [label="{boulders|id: UUID\lname: text\lurl: text\lsector_id: UUID\lgps_coords: point\lcreated_at: timestamp\lupdated_at: timestamp}"];
+        
+        boulder_photos [label="{boulder_photos|id: UUID\lboulder_id: UUID\lurl: text\lcaption: text\lorder: integer\lcreated_at: timestamp\lupdated_at: timestamp}"];
+        
+        routes [label="{routes|id: UUID\lboulder_id: UUID\lname: text\lurl: text\lgrade: text\lrating: float\lcreated_at: timestamp\lupdated_at: timestamp}"];
+    }
+    
+    // Competition Tables
+    subgraph cluster_1 {
+        label="Competition Data";
+        style=filled;
+        color=lightgrey;
+        margin=40;
+        
+        competitions [label="{competitions|id: UUID\lname: text\lcategory: text[]\lstart_date: date\lend_date: date\lstatus: enum\ldescription: text\lvenue: text\lcreated_at: timestamp\lupdated_at: timestamp}"];
+        
+        teams [label="{teams|id: UUID\lcompetition_id: UUID\lname: text\lcaptain_id: UUID\lcategory: text\lpaid: boolean\lcreated_at: timestamp\lupdated_at: timestamp}"];
+        
+        participants [label="{participants|id: UUID\lcompetition_id: UUID\lfirst_name: text\llast_name: text\lemail: text\lteam_id: UUID\lsolo_entry: boolean\lclub_member: boolean\lmembership_number: text\lpaid: boolean\lcreated_at: timestamp\lupdated_at: timestamp}"];
+        
+        ascents [label="{ascents|id: UUID\lcompetition_id: UUID\lparticipant_id: UUID\lroute_id: UUID\ltimestamp: timestamp\lsubmitted: boolean\lcreated_at: timestamp\lupdated_at: timestamp}"];
+    }
+    
+    // Scoring Configuration Tables
+    subgraph cluster_2 {
+        label="Scoring Configuration";
+        style=filled;
+        color=lightgrey;
+        margin=20;
+        
+        base_points [label="{base_points|grade: text\lpoints: integer\lincrement_factor: float\l(3-9A)}"];
+        
+        volume_bonus [label="{volume_bonus|bonus_increment: integer\lpoints_per_increment: integer}"];
+        
+        unique_ascent_bonus [label="{unique_ascent_bonus|bonus_factor: float}"];
+        
+        team_ascent_bonus [label="{team_ascent_bonus|team_size: integer\lbonus_factor: float}"];
+        
+        master_grade_bonus [label="{master_grade_bonus|bonus_factor: float\l}"];
+    }
+    
+    // Scoring Result Tables
+    subgraph cluster_3 {
+        label="Scoring Results";
+        style=filled;
+        color=lightgrey;
+        margin=20;
+        
+        scored_ascents [label="{scored_ascents|id: UUID\lascent_id: UUID\lparticipant_id: UUID\lroute_id: UUID\lbase_points: float\lvolume_bonus: float\lunique_bonus: float\ltotal_points: float\ltimestamp: timestamp\lcreated_at: timestamp\lupdated_at: timestamp}"];
+        
+        marathon_rankings [label="{marathon_rankings|id: UUID\lcompetition_id: UUID\lteam_id: UUID\lbase_score: float\lvolume_score: float\lunique_ascent_score: float\lteam_ascent_bonus: float\lmaster_grade_bonus: float\ltotal_score: float\lrank: integer\lcreated_at: timestamp\lupdated_at: timestamp}"];
+        
+        boulder_beasts_rankings [label="{boulder_beasts_rankings|id: UUID\lcompetition_id: UUID\lparticipant_id: UUID\ltop_grades: text[]\ltotal_score: float\lrank: integer\lcreated_at: timestamp\lupdated_at: timestamp}"];
+    }
+    
+    // Relationships with adjusted spacing
+    boulders -> sectors [label="sector_id", len=1.5];
+    boulder_photos -> boulders [label="boulder_id", len=1.5];
+    routes -> boulders [label="boulder_id", len=1.5];
+    
+    teams -> competitions [label="competition_id", len=1.5];
+    participants -> competitions [label="competition_id", len=1.5];
+    participants -> teams [label="team_id", len=1.5];
+    ascents -> competitions [label="competition_id", len=1.5];
+    ascents -> participants [label="participant_id", len=1.5];
+    ascents -> routes [label="route_id", len=1.5];
+    
+    scored_ascents -> ascents [label="ascent_id", len=1.5];
+    scored_ascents -> participants [label="participant_id", len=1.5];
+    scored_ascents -> routes [label="route_id", len=1.5];
+    
+    marathon_rankings -> competitions [label="competition_id", len=1.5];
+    marathon_rankings -> teams [label="team_id", len=1.5];
+    
+    boulder_beasts_rankings -> competitions [label="competition_id", len=1.5];
+    boulder_beasts_rankings -> participants [label="participant_id", len=1.5];
+} 
