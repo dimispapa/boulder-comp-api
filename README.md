@@ -23,21 +23,22 @@ API service for the Bouldering Festival Competition app, providing score calcula
 
 ```
 boulder-comp-api/
-├── api/                  # FastAPI endpoints
-│   └── routes/           # Route handlers (scraper, scoring)
+├── api/                  # FastAPI endpoints and route handlers
 ├── scraper/              # 27crags scraping logic
 ├── scoring/              # Score calculation logic
 ├── tasks/                # Celery background tasks
-├── utils/                # Common utilities/helpers
-├── tests/                # Unit/integration tests
+├── utils/                # Common utilities and helpers
+├── tests/                # Unit and integration tests
+├── supabase/             # Supabase configuration and migrations
+├── docs/                 # Documentation and diagrams
 ├── main.py               # FastAPI app entry point
 ├── .env                  # Environment variables (not committed)
 ├── docker-compose.yml    # Docker Compose configuration
 ├── Dockerfile            # Docker configuration for FastAPI app
 ├── Dockerfile.celery     # Docker configuration for Celery worker
-├── requirements.txt      # Dependencies
+├── requirements.txt      # Python dependencies
 ├── heroku.yml            # Heroku container deployment configuration
-├── Procfile              # Heroku process definitions (alternative to heroku.yml)
+├── Procfile              # Heroku process definitions
 ├── app.json              # Heroku app configuration
 └── .dockerignore         # Files to exclude from Docker builds
 ```
