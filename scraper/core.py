@@ -9,7 +9,7 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import os
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 from supabase import Client
 
 from utils.loggers import logger
@@ -157,111 +157,8 @@ class CragScraper:
             logger.error(f"Failed to get login page: {str(e)}")
             return False
 
-    def get_html(self, url: str) -> BeautifulSoup:
-        """
-        Make an HTTP GET request with retry logic.
-
-        Args:
-            url (str): URL to fetch
-
-        Returns:
-            BeautifulSoup: Parsed HTML content
-
-        Raises:
-            Exception: If request fails after max retries
-        """
-        for attempt in range(self.max_retries):
-            try:
-                self._rate_limit()
-
-                if attempt > 0:
-                    logger.debug(
-                        f"Retry attempt {attempt} of {self.max_retries-1}...")
-
-                response = self.session.get(url, headers=self.headers)
-
-                if response.status_code == 429:
-                    wait_time = int(
-                        response.headers.get('Retry-After', self.retry_delay))
-                    logger.debug(
-                        f"Rate limit reached. Waiting {wait_time} seconds...")
-                    time.sleep(wait_time)
-                    continue
-
-                response.raise_for_status()
-                return BeautifulSoup(response.content, 'html5lib')
-
-            except requests.exceptions.RequestException as e:
-                if attempt == self.max_retries - 1:
-                    logger.error(
-                        f"Failed to fetch data after {self.max_retries}"
-                        " attempts.")
-                    raise Exception(f"Failed to fetch {url}: {str(e)}")
-
-                logger.debug(f"Request failed. Retrying in {self.retry_delay}"
-                             " seconds...")
-                time.sleep(self.retry_delay)
-
-        raise Exception(
-            f"Failed to fetch {url} after {self.max_retries} attempts")
-
-    def get_json_html(self, url: str) -> BeautifulSoup:
-        """
-        Make an HTTP GET request to the JSON file from the specified URL.
-        Extract the HTML from JSON to parse the content.
-
-        Args:
-            url (str): The URL to make the request to.
-
-        Returns:
-            BeautifulSoup: The parsed HTML content of the response.
-        """
-        self._rate_limit()
-        response = self.session.get(url, headers=self.headers)
-        # load the json
-        additional_ascents_json = json.loads(response.text)
-        # Convert the JSON content to HTML
-        additional_ascents_html = additional_ascents_json['ticks']
-        # return the parsed html content
-        return BeautifulSoup(additional_ascents_html, 'html5lib')
-
-    def get_batch_html(self,
-                       urls: List[str],
-                       batch_size: int = 3) -> List[Optional[BeautifulSoup]]:
-        """
-        Process multiple URLs in batches with rate limiting.
-
-        Args:
-            urls (List[str]): List of URLs to process
-            batch_size (int): Number of URLs to process in each batch
-
-        Returns:
-            List[Optional[BeautifulSoup]]: List of parsed HTML content
-            for each URL
-        """
-        results = []
-
-        # Process URLs in batches
-        for i in range(0, len(urls), batch_size):
-            chunk = urls[i:i + batch_size]
-            chunk_results = []
-
-            # Process each URL in the batch
-            for url in chunk:
-                try:
-                    result = self.get_html(url)
-                    chunk_results.append(result)
-                except Exception as e:
-                    logger.error(f"Failed to fetch {url}: {str(e)}")
-                    chunk_results.append(None)
-
-            results.extend(chunk_results)
-            time.sleep(self.min_request_interval)  # Rate limit between chunks
-
-        return results
-
-    async def get_html_async(self, url: str,
-                             session: aiohttp.ClientSession) -> BeautifulSoup:
+    async def get_html(self, url: str,
+                       session: aiohttp.ClientSession) -> BeautifulSoup:
         """
         Async version of get_html with retry logic.
 
@@ -311,8 +208,8 @@ class CragScraper:
         raise Exception(
             f"Failed to fetch {url} after {self.max_retries} attempts")
 
-    async def get_json_html_async(
-            self, url: str, session: aiohttp.ClientSession) -> BeautifulSoup:
+    async def get_json_html(self, url: str,
+                            session: aiohttp.ClientSession) -> BeautifulSoup:
         """
         Async version of get_json_html.
 
@@ -345,7 +242,7 @@ class CragScraper:
             crag_name = crag_url.split('/')[-1]
             # Get route list page (to get the boulder pages)
             route_list_url = f"{crag_url}/routelist"
-            soup = await self.get_html_async(route_list_url, self.session)
+            soup = await self.get_html(route_list_url, self.session)
             # locate anchor elements with "sector-item" class.
             # These contain the boulder pages, exclude the first one which is a
             # combined list of all routes
@@ -412,7 +309,7 @@ class CragScraper:
             }).text.strip()
 
             # Get the boulder page
-            boulder_page = await self.get_html_async(boulder_url, self.session)
+            boulder_page = await self.get_html(boulder_url, self.session)
             routes_table_tbody = boulder_page.find('tbody')
 
             # Process routes in batches
@@ -474,7 +371,7 @@ class CragScraper:
             }).text.strip()
 
             # Get route page
-            route_page = await self.get_html_async(route_url, self.session)
+            route_page = await self.get_html(route_url, self.session)
             # Get the route description
             route_description = route_page.find('div',
                                                 attrs={
