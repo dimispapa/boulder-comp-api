@@ -11,10 +11,18 @@ CREATE TABLE sectors (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name TEXT NOT NULL UNIQUE,
     description TEXT,
-    gps_coords GEOGRAPHY(POINT),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- Insert initial sectors
+INSERT INTO sectors (id, name, description) VALUES
+    (uuid_generate_v4(), 'Inia'),
+    (uuid_generate_v4(), 'Pano Droushia'),
+    (uuid_generate_v4(), 'Kato Droushia'),
+    (uuid_generate_v4(), 'Alikou'),
+    (uuid_generate_v4(), 'Kari'),
+    (uuid_generate_v4(), 'Gerakopetra');
 
 -- Create boulders table
 CREATE TABLE boulders (
@@ -23,6 +31,15 @@ CREATE TABLE boulders (
     name TEXT NOT NULL,
     url TEXT NOT NULL,
     gps_coords GEOGRAPHY(POINT),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create boulder-sector mapping table
+CREATE TABLE boulder_sector_mappings (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    boulder_url TEXT NOT NULL UNIQUE,
+    sector_id UUID NOT NULL REFERENCES sectors(id),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -189,6 +206,7 @@ CREATE INDEX idx_marathon_rankings_competition_id ON marathon_rankings(competiti
 CREATE INDEX idx_marathon_rankings_team_id ON marathon_rankings(team_id);
 CREATE INDEX idx_boulder_beasts_rankings_competition_id ON boulder_beasts_rankings(competition_id);
 CREATE INDEX idx_boulder_beasts_rankings_participant_id ON boulder_beasts_rankings(participant_id);
+CREATE INDEX idx_boulder_sector_mappings_url ON boulder_sector_mappings(boulder_url);
 
 -- Create RLS (Row Level Security) policies
 ALTER TABLE sectors ENABLE ROW LEVEL SECURITY;
