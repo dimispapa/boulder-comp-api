@@ -310,10 +310,15 @@ class CragScraper:
 
             # Get the boulder page
             boulder_page = await self.get_html(boulder_url, self.session)
-            routes_table_tbody = boulder_page.find('tbody')
+
+            # Get the GPS coordinates
+            gps_coords = boulder_page.find(
+                'a', class_=['sector-property',
+                             'copytoclipboard']).get('data-href').strip()
 
             # Process routes in batches
             routes = []
+            routes_table_tbody = boulder_page.find('tbody')
             tr_elements = routes_table_tbody.find_all('tr')
             batch_size = 3
             processed_count = 0
@@ -331,7 +336,10 @@ class CragScraper:
                 await asyncio.sleep(0.1)  # Small delay between batches
 
             # Create and return Boulder object
-            return Boulder(name=boulder_name, url=boulder_url, routes=routes)
+            return Boulder(name=boulder_name,
+                           url=boulder_url,
+                           gps_coords=gps_coords,
+                           routes=routes)
 
         except Exception as e:
             logger.error(f"Error extracting boulder data: {str(e)}")
