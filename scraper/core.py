@@ -406,6 +406,8 @@ class CragScraper:
                 }
                 result = self.supabase.table('boulders').upsert(
                     boulder_data).execute()
+                logger.debug(
+                    f"Upserted boulder: {boulder_data}. Result: {result}")
                 boulder_id = result.data[0]['id']
 
                 # Store routes for this boulder
@@ -419,6 +421,8 @@ class CragScraper:
                         'description': route.description,
                     }
                     self.supabase.table('routes').upsert(route_data).execute()
+                    logger.debug(
+                        f"Upserted route: {route_data}. Result: {result}")
 
         except Exception as e:
             raise Exception(f"Error storing data in Supabase: {str(e)}")
