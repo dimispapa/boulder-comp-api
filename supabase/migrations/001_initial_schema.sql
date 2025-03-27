@@ -1,3 +1,26 @@
+-- Drop tables in reverse order of dependencies
+DROP TABLE IF EXISTS boulder_beasts_rankings CASCADE;
+DROP TABLE IF EXISTS marathon_rankings CASCADE;
+DROP TABLE IF EXISTS scored_ascents CASCADE;
+DROP TABLE IF EXISTS master_grade_bonus CASCADE;
+DROP TABLE IF EXISTS team_ascent_bonus CASCADE;
+DROP TABLE IF EXISTS unique_ascent_bonus CASCADE;
+DROP TABLE IF EXISTS volume_bonus CASCADE;
+DROP TABLE IF EXISTS base_points CASCADE;
+DROP TABLE IF EXISTS ascents CASCADE;
+DROP TABLE IF EXISTS participants CASCADE;
+DROP TABLE IF EXISTS teams CASCADE;
+DROP TABLE IF EXISTS competitions CASCADE;
+DROP TABLE IF EXISTS routes CASCADE;
+DROP TABLE IF EXISTS boulder_photos CASCADE;
+DROP TABLE IF EXISTS boulder_sector_mappings CASCADE;
+DROP TABLE IF EXISTS boulders CASCADE;
+DROP TABLE IF EXISTS sectors CASCADE;
+
+-- Drop enum types
+DROP TYPE IF EXISTS competition_status CASCADE;
+DROP TYPE IF EXISTS competition_category CASCADE;
+
 -- Enable necessary extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "postgis";
@@ -16,7 +39,7 @@ CREATE TABLE sectors (
 );
 
 -- Insert initial sectors
-INSERT INTO sectors (id, name, description) VALUES
+INSERT INTO sectors (id, name) VALUES
     (uuid_generate_v4(), 'Inia'),
     (uuid_generate_v4(), 'Pano Droushia'),
     (uuid_generate_v4(), 'Kato Droushia'),
