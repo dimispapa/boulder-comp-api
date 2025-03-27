@@ -4,11 +4,15 @@ FastAPI router for the scraping endpoints.
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from supabase import create_client
 import os
-from celery import shared_task
-
-from scraper.core import CragScraper
+from urllib.parse import urljoin
+from dotenv import load_dotenv
 from utils.loggers import logger
+from tasks.scraper_tasks import scrape_crag_data
 
+# Load environment variables
+load_dotenv()
+
+# Initialize router
 router = APIRouter()
 
 # Initialize Supabase client
@@ -17,32 +21,6 @@ supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 # Default url domain and headers for 27crags
 BASE_URL = os.getenv("27CRAGS_BASE_URL")
 HEADERS = {'User-Agent': os.getenv("HEADERS_USER_AGENT")}
-
-
-@shared_task
-async def scrape_crag_task(crag_url: str):
-    """Celery task to scrape a crag."""
-    try:
-        scraper = CragScraper(HEADERS, supabase)
-
-        # Login with credentials from environment
-        username = os.getenv("27CRAGS_USERNAME")
-        password = os.getenv("27CRAGS_PASSWORD")
-
-        if not username or not password:
-            raise HTTPException(status_code=500,
-                                detail="Missing 27crags credentials")
-
-        if not await scraper.login(username, password):
-            raise HTTPException(status_code=500,
-                                detail="Failed to login to 27crags")
-
-        # Start scraping
-        await scraper.scrape_crag(crag_url)
-        return {"status": "success"}
-
-    except Exception as e:
-        return {"status": "error", "detail": str(e)}
 
 
 @router.post("/start")
@@ -59,17 +37,23 @@ async def start_scraping(background_tasks: BackgroundTasks,
         dict: Status of the scraping task
     """
     try:
-        # Queue the scraping task
-        url = f"{BASE_URL}/{crag_name}"
-        logger.debug(f"API route started scraping crag: {url}")
-        task = scrape_crag_task.delay(url)
+        # Ensure URL is properly constructed
+        if not BASE_URL.endswith('/'):
+            base_url = f"{BASE_URL}/"
+        else:
+            base_url = BASE_URL
+
+        crag_url = urljoin(base_url, crag_name)
+        logger.debug(f"API route started scraping crag: {crag_url}")
+
+        # Use the proper registered task
+        task = scrape_crag_data.delay(crag_url)
 
         return {
             "status": "success",
             "message": "Scraping task started",
             "task_id": task.id
         }
-
     except Exception as e:
         raise HTTPException(status_code=500,
                             detail=f"Failed to start scraping: {str(e)}")
@@ -87,16 +71,51 @@ async def get_scraping_status(task_id: str):
         dict: Current status of the task
     """
     try:
-        task = scrape_crag_task.AsyncResult(task_id)
 
+        task = scrape_crag_data.AsyncResult(task_id)
+
+        # Basic status information
+        result = {
+            "task_id": task_id,
+            "status": task.status,
+            "state": task.state,
+        }
+
+        # Add more details based on task state
         if task.ready():
+            result["date_completed"] = task.date_done.isoformat(
+            ) if task.date_done else None
+
             if task.successful():
-                return {"status": "completed", "result": task.result}
+                result["result"] = task.result
+                result["status"] = "completed"
             else:
-                return {"status": "failed", "error": str(task.result)}
+                # Get more detailed error information
+                result["status"] = "failed"
+                result["error"] = str(task.result)
+
+                # Add traceback if available
+                if task.traceback:
+                    # Limit traceback length to avoid huge responses
+                    result["traceback"] = task.traceback[-2000:] if len(
+                        task.traceback) > 2000 else task.traceback
         else:
-            return {"status": "in_progress"}
+            # For tasks in progress
+            result["status"] = "in_progress"
+            # Include any info the task might have published
+            if task.info:
+                result["progress_info"] = task.info
+
+        return result
 
     except Exception as e:
-        raise HTTPException(status_code=500,
-                            detail=f"Failed to get task status: {str(e)}")
+        # Provide detailed error about what went wrong
+        # in the status check itself
+        import traceback
+        error_traceback = traceback.format_exc()
+
+        return {
+            "status": "error",
+            "error": f"Failed to get task status: {str(e)}",
+            "traceback": error_traceback
+        }

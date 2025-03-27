@@ -45,7 +45,9 @@ INSERT INTO sectors (id, name) VALUES
     (uuid_generate_v4(), 'Kato Droushia'),
     (uuid_generate_v4(), 'Alikou'),
     (uuid_generate_v4(), 'Kari'),
-    (uuid_generate_v4(), 'Gerakopetra');
+    (uuid_generate_v4(), 'Gerakopetra'),
+    (uuid_generate_v4(), 'Pano Akamas'),
+    (uuid_generate_v4(), 'Panorama');
 
 -- Create boulders table
 CREATE TABLE boulders (
@@ -53,7 +55,8 @@ CREATE TABLE boulders (
     sector_id UUID NOT NULL REFERENCES sectors(id) ON DELETE RESTRICT,
     name TEXT NOT NULL,
     url TEXT NOT NULL,
-    gps_coords GEOGRAPHY(POINT),
+    gps_postgis GEOGRAPHY(POINT),
+    gps_string TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

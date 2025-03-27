@@ -11,9 +11,16 @@ import time
 import os
 from typing import Dict, Optional
 from supabase import Client
+from urllib.parse import urljoin
+from dotenv import load_dotenv
 
 from utils.loggers import logger
 from .models import Crag, Boulder, Route
+from utils.sector_boulder_map import create_mappings_from_excel
+
+
+# Load environment variables
+load_dotenv()
 
 
 class CragScraper:
@@ -35,6 +42,8 @@ class CragScraper:
         self.session = requests.Session()
         self.is_authenticated = False
         self.last_request_time = 0
+        self.batch_size = 3
+        self.batch_delay = 0.1
         self.base_url = "https://27crags.com"
         self.login_url = "https://27crags.com/login"
 
@@ -237,49 +246,57 @@ class CragScraper:
         Returns:
             Crag: A Crag object containing all scraped data
         """
-        try:
-            # Get crag name
-            crag_name = crag_url.split('/')[-1]
-            # Get route list page (to get the boulder pages)
-            route_list_url = f"{crag_url}/routelist"
-            soup = await self.get_html(route_list_url, self.session)
-            # locate anchor elements with "sector-item" class.
-            # These contain the boulder pages, exclude the first one which is a
-            # combined list of all routes
-            boulder_elements = soup.find_all('a',
-                                             attrs={'class':
-                                                    'sector-item'})[1:]
-            total_boulders = len(boulder_elements)
-            logger.info(f"Found {total_boulders} boulders on {crag_url}")
+        async with aiohttp.ClientSession(headers=self.headers) as session:
+            try:
+                # Get crag name
+                crag_name = crag_url.split('/')[-1]
+                route_list_url = f"{crag_url}/routelist"
 
-            # Process boulders in batches
-            boulders = []
-            batch_size = 3
-            completed_boulders = 0
+                # Use session throughout
+                soup = await self.get_html(route_list_url, session)
 
-            for i in range(0, total_boulders, batch_size):
-                batch = boulder_elements[i:i + batch_size]
-                batch_tasks = []
-                for boulder_element in batch:
-                    # Extract boulder data
-                    boulder = await self._extract_boulder_data(
-                        boulder_element, self.session)
-                    boulders.append(boulder)
-                    batch_tasks.append(boulder.async_init(self.session))
+                # locate anchor elements with "sector-item" class.
+                # These contain the boulder pages,
+                # exclude the first one which is a combined list of all routes
+                boulder_elements = soup.find_all(
+                    'a', attrs={'class': 'sector-item'})[1:]
+                total_boulders = len(boulder_elements)
+                logger.info(f"Found {total_boulders} boulders on {crag_url}")
 
-                # Wait for the batch to complete
-                await asyncio.gather(*batch_tasks)
-                completed_boulders += len(batch)
-                logger.info(
-                    f"Completed {completed_boulders} of {total_boulders}"
-                    f" boulders on {crag_url}")
+                # Process boulders in batches
+                boulders = []
+                batch_size = self.batch_size
+                completed_boulders = 0
+                skipped_boulders = []
 
-            # Create and return Crag object
-            return Crag(name=crag_name, boulders=boulders)
+                for i in range(0, total_boulders, batch_size):
+                    batch = boulder_elements[i:i + batch_size]
+                    for boulder_element in batch:
+                        # Extract boulder data
+                        boulder = await self._extract_boulder_data(
+                            boulder_element, self.session)
+                        if boulder:  # Only append valid boulders
+                            boulders.append(boulder)
+                        else:
+                            skipped_boulders.append(boulder.url)
+                            logger.warning(
+                                "No sector mapping found for boulder: "
+                                f"{boulder.url}")
+                            continue
 
-        except Exception as e:
-            logger.error(f"Error scraping crag: {str(e)}")
-            raise
+                    # Add delay between batches
+                    await asyncio.sleep(self.batch_delay)
+                    completed_boulders += len(batch)
+                    logger.info(
+                        f"Completed {completed_boulders} of {total_boulders}"
+                        f" boulders on {crag_url}")
+
+                # Create and return Crag object
+                return Crag(name=crag_name, boulders=boulders)
+
+            except Exception as e:
+                logger.error(f"Error scraping crag: {str(e)}")
+                return {"success": False, "skipped_boulders": skipped_boulders}
 
     async def _extract_boulder_data(
             self, boulder_element: BeautifulSoup,
@@ -296,9 +313,8 @@ class CragScraper:
             Optional[Boulder]: Boulder object if successful, None otherwise
         """
         try:
-            # Extract boulder name and URL
-            # Get the full URL for the boulder page
-            boulder_url = self.base_url + boulder_element['href']
+            # Extract boulder URL from anchor element
+            boulder_url = urljoin(self.base_url, boulder_element['href'])
             if not boulder_url:
                 logger.error(f"No boulder link found for {boulder_element}")
                 return None
@@ -311,16 +327,20 @@ class CragScraper:
             # Get the boulder page
             boulder_page = await self.get_html(boulder_url, self.session)
 
-            # Get the GPS coordinates
-            gps_coords = boulder_page.find(
+            # Get the GPS lat, lon string
+            gps_string = boulder_page.find(
                 'a', class_=['sector-property',
                              'copytoclipboard']).get('data-href').strip()
+
+            # Convert to postgis point
+            lat, lon = map(float, gps_string.split(','))
+            gps_postgis = f'POINT({lon} {lat})'
 
             # Process routes in batches
             routes = []
             routes_table_tbody = boulder_page.find('tbody')
             tr_elements = routes_table_tbody.find_all('tr')
-            batch_size = 3
+            batch_size = self.batch_size
             processed_count = 0
 
             for i in range(0, len(tr_elements), batch_size):
@@ -333,12 +353,13 @@ class CragScraper:
                         routes.append(route)
 
                 processed_count += 1
-                await asyncio.sleep(0.1)  # Small delay between batches
+                await asyncio.sleep(self.batch_delay)
 
             # Create and return Boulder object
             return Boulder(name=boulder_name,
                            url=boulder_url,
-                           gps_coords=gps_coords,
+                           gps_postgis=gps_postgis,
+                           gps_string=gps_string,
                            routes=routes)
 
         except Exception as e:
@@ -360,18 +381,26 @@ class CragScraper:
         try:
             # Get the full URL for the route page
             anchor = route_element.find('a')
-            route_url = self.base_url + anchor['href']
-            if not route_url:
-                logger.error(f"No route link found for {route_element}")
+            if not anchor:
+                logger.error("No anchor element found in route")
                 return None
 
-            # Extract route name
+            # Extract route URL and name
+            route_url = urljoin(self.base_url, anchor['href'])
             route_name = anchor.text.strip()
 
             # Extract grade
-            grade = route_element.find('span', attrs={
-                'class': 'grade'
-            }).text.strip().upper()
+            grade_element = route_element.find('span',
+                                               attrs={'class': 'grade'})
+            if not grade_element:
+                logger.error(f"No grade found for route: {route_name}")
+                return None
+            grade = grade_element.text.strip().upper()
+
+            # Validate essential data
+            if not all([route_url, route_name, grade]):
+                logger.error(f"Missing required route data for {route_url}")
+                return None
 
             # Extract rating
             rating = route_element.find('div', attrs={
@@ -397,6 +426,27 @@ class CragScraper:
             logger.error(f"Error extracting route data: {str(e)}")
             return None
 
+    async def _get_sector_mappings(self) -> Dict[str, str]:
+        """
+        Fetch boulder-sector mappings from Supabase.
+
+        Returns:
+            Dict[str, str]: Dictionary mapping boulder URLs to sector IDs
+        """
+        try:
+            result = await create_mappings_from_excel(
+                self.supabase, "data/boulder_sector_mappings.xlsx")
+
+            # Create mapping dictionary
+            return {
+                item['boulder_url']: item['sector_id']
+                for item in result.data
+            }
+
+        except Exception as e:
+            logger.error(f"Error fetching sector mappings: {str(e)}")
+            raise
+
     async def _store_data_in_supabase(self, crag: Crag) -> None:
         """
         Store the scraped data in Supabase tables.
@@ -405,32 +455,42 @@ class CragScraper:
             crag (Crag): Crag object containing all scraped data
         """
         try:
+            # Get sector mappings
+            sector_mappings = await self._get_sector_mappings()
+
             # Store boulders
             for boulder in crag.boulders:
-                boulder_data = {
-                    'name': boulder.name,
-                    'url': boulder.url,
-                    'gps_coords': boulder.gps_coords
-                }
-                result = self.supabase.table('boulders').upsert(
-                    boulder_data).execute()
-                logger.debug(
-                    f"Upserted boulder: {boulder_data}. Result: {result}")
-                boulder_id = result.data[0]['id']
+                # Get sector ID from mapping
+                sector_id = sector_mappings.get(boulder.url)
+                if not sector_id:
+                    logger.warning(
+                        f"No sector mapping found for boulder: {boulder.url}")
+                    continue
 
-                # Store routes for this boulder
-                for route in boulder.routes:
-                    route_data = {
-                        'boulder_id': boulder_id,
-                        'name': route.name,
-                        'url': route.url,
-                        'grade': route.grade,
-                        'rating': route.rating,
-                        'description': route.description,
-                    }
-                    self.supabase.table('routes').upsert(route_data).execute()
-                    logger.debug(
-                        f"Upserted route: {route_data}. Result: {result}")
+                # Start transaction
+                async with self.supabase.pool.acquire() as connection:
+                    async with connection.transaction():
+                        # Insert boulder
+                        boulder_data = {
+                            'sector_id': sector_id,
+                            **boulder.to_supabase_dict()
+                        }
+                        result = await connection.table('boulders').upsert(
+                            boulder_data,
+                            on_conflict='url').execute()
+                        boulder_id = result.data[0]['id']
+
+                        # Insert routes within same transaction
+                        for route in boulder.routes:
+                            route_data = {
+                                'boulder_id': boulder_id,
+                                **route.to_supabase_dict()
+                            }
+                            await connection.table('routes').upsert(
+                                route_data,
+                                on_conflict='url').execute()
 
         except Exception as e:
-            raise Exception(f"Error storing data in Supabase: {str(e)}")
+            logger.error(f"Error in transaction storing data in Supabase: "
+                         f"{str(e)}")
+            raise

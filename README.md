@@ -202,15 +202,16 @@ For Heroku deployment, these variables should be set using the Heroku CLI or das
 
 #### `boulders`
 
-| Field         | Type         | Notes                                |
-|---------------|--------------|--------------------------------------|
-| `id`          | UUID / PK    | Unique boulder ID                    |
-| `name`        | text         | Boulder name                         |
-| `url`         | text         | 27crags URL                          |
-| `sector_id`   | FK → sectors.id | Reference to sector              |
-| `gps_coords`  | text / point | Boulder's geographical coordinates   |
-| `created_at`  | timestamp    | When added                           |
-| `updated_at`  | timestamp    | Last updated                         |
+| Field         | Type           | Notes                                |
+|---------------|----------------|--------------------------------------|
+| `id`          | UUID / PK      | Unique boulder ID                    |
+| `name`        | text           | Boulder name                         |
+| `url`         | text           | 27crags URL                          |
+| `sector_id`   | FK → sectors.id| Reference to sector                  |
+| `gps_postgis`  | GEOGRAPHY(POINT)| PostGIS formatted coordinates (POINT(lon lat))|
+| `gps_string`  | text           | Raw coordinates string (lat, lon)    |
+| `created_at`  | timestamp      | When added                           |
+| `updated_at`  | timestamp      | Last updated                         |
 
 #### `boulder_photos`
 
@@ -234,6 +235,16 @@ For Heroku deployment, these variables should be set using the Heroku CLI or das
 | `rating`     | float / null | Route rating                             |
 | `created_at` | timestamp    | When added                               |
 | `updated_at` | timestamp    | Last updated                             |
+
+#### `boulder_sector_mappings`
+
+| Field         | Type           | Notes                               |
+|---------------|----------------|-------------------------------------|
+| `id`          | UUID / PK      | Unique mapping ID                   |
+| `boulder_url` | text           | URL of boulder on 27crags           |
+| `sector_id`   | FK → sectors.id| Reference to sector                 |
+| `created_at`  | timestamp      | When added                          |
+| `updated_at`  | timestamp      | Last updated                        |
 
 ---
 

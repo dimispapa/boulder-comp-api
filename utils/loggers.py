@@ -16,7 +16,7 @@ logging.getLogger('urllib3').setLevel(logging.WARNING)
 logging.getLogger('google').setLevel(logging.WARNING)
 
 # Create logger
-logger = logging.getLogger('crag_leader')
+logger = logging.getLogger('boulder-comp-api')
 
 
 # Optional: Add filter to exclude logs from showing in the terminal

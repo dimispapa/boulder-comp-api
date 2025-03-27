@@ -29,7 +29,9 @@ hyperframe==6.1.0
 idna==3.10
 kombu==5.5.0
 multidict==6.2.0
+numpy==2.2.4
 packaging==24.2
+pandas==2.2.3
 postgrest==0.19.3
 prompt_toolkit==3.0.50
 propcache==0.3.0
@@ -37,6 +39,7 @@ pydantic==2.10.6
 pydantic_core==2.27.2
 python-dateutil==2.9.0.post0
 python-dotenv==1.0.1
+pytz==2025.2
 PyYAML==6.0.2
 realtime==2.4.1
 redis==5.2.1

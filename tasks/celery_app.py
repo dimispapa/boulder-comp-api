@@ -24,7 +24,12 @@ celery_app.conf.update(
     task_track_started=True,
     task_time_limit=3600,  # 1 hour
     worker_max_tasks_per_child=100,
-    broker_connection_retry_on_startup=True)
+    broker_connection_retry_on_startup=True,
+    task_publish_retry=True,
+    worker_log_color=True,
+    worker_redirect_stdouts=True,
+    worker_redirect_stdouts_level='INFO',
+)
 
 # Auto-discover tasks in the 'tasks' directory
 celery_app.autodiscover_tasks(['tasks'], force=True)

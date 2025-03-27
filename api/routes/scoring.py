@@ -11,6 +11,10 @@ import os
 from scoring.core import ScoreCalculator
 from celery import shared_task
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Set up logging
 logger = logging.getLogger(__name__)

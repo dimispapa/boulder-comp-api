@@ -24,14 +24,16 @@ class Route:
 class Boulder:
     name: str
     url: str
-    gps_coords: str
+    gps_postgis: str
+    gps_string: str
     routes: List[Route]
 
     def to_supabase_dict(self):
         return {
             'name': self.name,
             'url': self.url,
-            'gps_coords': self.gps_coords,
+            'gps_postgis': self.gps_postgis,
+            'gps_string': self.gps_string,
         }
 
 
