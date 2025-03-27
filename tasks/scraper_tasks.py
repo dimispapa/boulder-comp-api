@@ -25,10 +25,10 @@ HEADERS = {
 async def scrape_crag_data(self, crag_url: str):
     """
     Celery task to scrape data from a 27crags crag page.
-    
+
     Args:
         crag_url (str): URL of the crag to scrape
-        
+
     Returns:
         dict: Status and result of the scraping operation
     """

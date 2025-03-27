@@ -19,9 +19,9 @@ CREATE TABLE sectors (
 -- Create boulders table
 CREATE TABLE boulders (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    sector_id UUID NOT NULL REFERENCES sectors(id) ON DELETE RESTRICT,
     name TEXT NOT NULL,
     url TEXT NOT NULL,
-    sector_id UUID NOT NULL REFERENCES sectors(id) ON DELETE RESTRICT,
     gps_coords GEOGRAPHY(POINT),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -46,6 +46,7 @@ CREATE TABLE routes (
     url TEXT NOT NULL,
     grade TEXT NOT NULL,
     rating FLOAT,
+    description TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

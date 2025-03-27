@@ -4,20 +4,19 @@ FastAPI router for the scraping endpoints.
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from supabase import create_client
 import os
-from scraper.core import CragScraper
 from celery import shared_task
+
+from scraper.core import CragScraper
+from utils.loggers import logger
 
 router = APIRouter()
 
 # Initialize Supabase client
 supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 
-# Default headers for 27crags
-HEADERS = {
-    'User-Agent': ('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
-                   'AppleWebKit/537.36 (KHTML, like Gecko) '
-                   'Chrome/126.0.0.0 Safari/537.36')
-}
+# Default url domain and headers for 27crags
+BASE_URL = os.getenv("27CRAGS_BASE_URL")
+HEADERS = {'User-Agent': os.getenv("HEADERS_USER_AGENT")}
 
 
 @shared_task
@@ -47,21 +46,23 @@ async def scrape_crag_task(crag_url: str):
 
 
 @router.post("/start")
-async def start_scraping(
-        background_tasks: BackgroundTasks,
-        crag_url: str = "https://27crags.com/crags/inia-droushia"):
+async def start_scraping(background_tasks: BackgroundTasks,
+                         crag_name: str = "inia-droushia"):
     """
     Start scraping a crag from 27crags.com.
-    
+
     Args:
-        crag_url (str): URL of the crag to scrape. Defaults to Inia & Droushia.
-        
+        crag_name (str): Name of the crag to scrape.
+        Defaults to 'inia-droushia'.
+
     Returns:
         dict: Status of the scraping task
     """
     try:
         # Queue the scraping task
-        task = scrape_crag_task.delay(crag_url)
+        url = f"{BASE_URL}/{crag_name}"
+        logger.debug(f"API route started scraping crag: {url}")
+        task = scrape_crag_task.delay(url)
 
         return {
             "status": "success",
@@ -78,10 +79,10 @@ async def start_scraping(
 async def get_scraping_status(task_id: str):
     """
     Get the status of a scraping task.
-    
+
     Args:
         task_id (str): ID of the task to check
-        
+
     Returns:
         dict: Current status of the task
     """

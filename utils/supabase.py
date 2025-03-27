@@ -25,7 +25,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 def get_supabase_client() -> Client:
     """
     Get a Supabase client instance with the configured credentials.
-    
+
     Returns:
         Client: A Supabase client instance.
     """

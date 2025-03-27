@@ -21,7 +21,7 @@ API service for the Bouldering Festival Competition app, providing score calcula
 
 ## Project Structure
 
-```
+```file
 boulder-comp-api/
 ├── api/                  # FastAPI endpoints and route handlers
 ├── scraper/              # 27crags scraping logic
