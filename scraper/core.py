@@ -13,11 +13,10 @@ from typing import Dict, Optional
 from supabase import Client
 from urllib.parse import urljoin
 from dotenv import load_dotenv
+import random
 
 from utils.loggers import logger
 from .models import Crag, Boulder, Route
-from utils.sector_boulder_map import create_mappings_from_excel
-
 
 # Load environment variables
 load_dotenv()
@@ -44,8 +43,8 @@ class CragScraper:
         self.last_request_time = 0
         self.batch_size = 3
         self.batch_delay = 0.1
-        self.base_url = "https://27crags.com"
-        self.login_url = "https://27crags.com/login"
+        self.domain = os.getenv("CRAGS_DOMAIN")
+        self.login_url = urljoin(self.domain, "login")
 
         # Configuration
         self.min_request_interval = float(
@@ -64,13 +63,18 @@ class CragScraper:
         self.last_request_time = time.time()
 
     async def _async_rate_limit(self) -> None:
-        """Async version of rate limiting."""
+        """Async version of rate limiting with randomization."""
         async with self._rate_limit_lock:
             current_time = time.time()
             time_since_last_request = current_time - self.last_request_time
-            if time_since_last_request < self.min_request_interval:
-                await asyncio.sleep(self.min_request_interval -
-                                    time_since_last_request)
+            base_delay = self.min_request_interval
+
+            # Add randomness to the delay (±30%)
+            jitter = base_delay * 0.3 * (2 * random.random() - 1)
+            delay = max(0, base_delay + jitter - time_since_last_request)
+
+            if delay > 0:
+                await asyncio.sleep(delay)
             self.last_request_time = time.time()
 
     def login(self, username: str, password: str) -> bool:
@@ -167,7 +171,7 @@ class CragScraper:
             return False
 
     async def get_html(self, url: str,
-                       session: aiohttp.ClientSession) -> BeautifulSoup:
+                       async_session: aiohttp.ClientSession) -> BeautifulSoup:
         """
         Async version of get_html with retry logic.
 
@@ -189,7 +193,8 @@ class CragScraper:
                     logger.debug(
                         f"Retry attempt {attempt} of {self.max_retries-1}...")
 
-                async with session.get(url, headers=self.headers) as response:
+                async with async_session.get(url,
+                                             headers=self.headers) as response:
                     if response.status == 429:
                         wait_time = int(
                             response.headers.get('Retry-After',
@@ -210,15 +215,22 @@ class CragScraper:
                         " attempts.")
                     raise Exception(f"Failed to fetch {url}: {str(e)}")
 
-                logger.debug(f"Request failed. Retrying in {self.retry_delay}"
-                             " seconds...")
-                await asyncio.sleep(self.retry_delay)
+                # Exponential backoff with randomization
+                wait_time = self.retry_delay * (2**attempt)
+                # Add jitter (±20%)
+                jitter = wait_time * 0.2 * (2 * random.random() - 1)
+                wait_time = max(1, wait_time + jitter)
+
+                logger.debug(
+                    f"Request failed. Retrying in {wait_time:.1f} seconds...")
+                await asyncio.sleep(wait_time)
 
         raise Exception(
             f"Failed to fetch {url} after {self.max_retries} attempts")
 
-    async def get_json_html(self, url: str,
-                            session: aiohttp.ClientSession) -> BeautifulSoup:
+    async def get_json_html(
+            self, url: str,
+            async_session: aiohttp.ClientSession) -> BeautifulSoup:
         """
         Async version of get_json_html.
 
@@ -230,30 +242,40 @@ class CragScraper:
             BeautifulSoup: Parsed HTML content
         """
         await self._async_rate_limit()
-        async with session.get(url, headers=self.headers) as response:
+        async with async_session.get(url, headers=self.headers) as response:
             content = await response.text()
             additional_ascents_json = json.loads(content)
             additional_ascents_html = additional_ascents_json['ticks']
             return BeautifulSoup(additional_ascents_html, 'html5lib')
 
-    async def scrape_crag(self, crag_url: str) -> Crag:
+    async def scrape_crag(self, crag_url: str, progress_callback=None) -> Crag:
         """
         Scrape all boulder data from a crag page.
 
         Args:
             crag_url (str): URL of the crag to scrape
+            progress_callback: Optional function to call with progress updates
 
         Returns:
             Crag: A Crag object containing all scraped data
         """
-        async with aiohttp.ClientSession(headers=self.headers) as session:
+        # Initialize skipped_boulders here
+        skipped_boulders = []
+        # Track start time for elapsed time calculation
+        start_time = time.time()
+
+        async with aiohttp.ClientSession(
+                headers=self.headers) as async_session:
             try:
                 # Get crag name
                 crag_name = crag_url.split('/')[-1]
-                route_list_url = f"{crag_url}/routelist"
+                logger.debug(f"Crag name: {crag_name}")
+                logger.debug(f"Crag URL: {crag_url}")
+                route_list_url = urljoin(crag_url + "/", "routelist")
+                logger.debug(f"Route list URL: {route_list_url}")
 
                 # Use session throughout
-                soup = await self.get_html(route_list_url, session)
+                soup = await self.get_html(route_list_url, async_session)
 
                 # locate anchor elements with "sector-item" class.
                 # These contain the boulder pages,
@@ -263,33 +285,61 @@ class CragScraper:
                 total_boulders = len(boulder_elements)
                 logger.info(f"Found {total_boulders} boulders on {crag_url}")
 
+                # After finding total_boulders:
+                if progress_callback:
+                    elapsed_seconds = time.time() - start_time
+                    progress_callback({
+                        'total_boulders': total_boulders,
+                        'completed_boulders': 0,
+                        'elapsed_seconds': int(elapsed_seconds),
+                        'status': 'in_progress'
+                    })
+
                 # Process boulders in batches
                 boulders = []
                 batch_size = self.batch_size
                 completed_boulders = 0
-                skipped_boulders = []
 
                 for i in range(0, total_boulders, batch_size):
                     batch = boulder_elements[i:i + batch_size]
                     for boulder_element in batch:
+                        # Extract URL before processing boulder
+                        boulder_url = urljoin(self.domain,
+                                              boulder_element['href'])
+
                         # Extract boulder data
                         boulder = await self._extract_boulder_data(
-                            boulder_element, self.session)
+                            boulder_element, async_session)
                         if boulder:  # Only append valid boulders
                             boulders.append(boulder)
                         else:
-                            skipped_boulders.append(boulder.url)
+                            skipped_boulders.append(boulder_url)
                             logger.warning(
                                 "No sector mapping found for boulder: "
-                                f"{boulder.url}")
+                                f"{boulder_url}")
                             continue
 
                     # Add delay between batches
                     await asyncio.sleep(self.batch_delay)
                     completed_boulders += len(batch)
+                    elapsed_seconds = time.time() - start_time
                     logger.info(
-                        f"Completed {completed_boulders} of {total_boulders}"
-                        f" boulders on {crag_url}")
+                        f"Completed {completed_boulders} of {total_boulders} "
+                        f"boulders on {crag_url} (elapsed: "
+                        f"{int(elapsed_seconds)}s)")
+
+                    # After updating completed_boulders:
+                    if progress_callback:
+                        progress_callback({
+                            'total_boulders':
+                            total_boulders,
+                            'completed_boulders':
+                            completed_boulders,
+                            'elapsed_seconds':
+                            int(elapsed_seconds),
+                            'status':
+                            'in_progress'
+                        })
 
                 # Create and return Crag object
                 return Crag(name=crag_name, boulders=boulders)
@@ -300,7 +350,7 @@ class CragScraper:
 
     async def _extract_boulder_data(
             self, boulder_element: BeautifulSoup,
-            session: aiohttp.ClientSession) -> Optional[Boulder]:
+            async_session: aiohttp.ClientSession) -> Optional[Boulder]:
         """
         Extract data from a boulder element.
 
@@ -314,7 +364,7 @@ class CragScraper:
         """
         try:
             # Extract boulder URL from anchor element
-            boulder_url = urljoin(self.base_url, boulder_element['href'])
+            boulder_url = urljoin(self.domain, boulder_element['href'])
             if not boulder_url:
                 logger.error(f"No boulder link found for {boulder_element}")
                 return None
@@ -325,7 +375,7 @@ class CragScraper:
             }).text.strip()
 
             # Get the boulder page
-            boulder_page = await self.get_html(boulder_url, self.session)
+            boulder_page = await self.get_html(boulder_url, async_session)
 
             # Get the GPS lat, lon string
             gps_string = boulder_page.find(
@@ -348,7 +398,7 @@ class CragScraper:
 
                 for tr_element in batch:
                     route = await self._extract_route_data(
-                        tr_element, self.session)
+                        tr_element, async_session)
                     if route:
                         routes.append(route)
 
@@ -368,7 +418,7 @@ class CragScraper:
 
     async def _extract_route_data(
             self, route_element: BeautifulSoup,
-            session: aiohttp.ClientSession) -> Optional[Route]:
+            async_session: aiohttp.ClientSession) -> Optional[Route]:
         """
         Extract data from a route element.
 
@@ -386,7 +436,7 @@ class CragScraper:
                 return None
 
             # Extract route URL and name
-            route_url = urljoin(self.base_url, anchor['href'])
+            route_url = urljoin(self.domain, anchor['href'])
             route_name = anchor.text.strip()
 
             # Extract grade
@@ -408,7 +458,7 @@ class CragScraper:
             }).text.strip()
 
             # Get route page
-            route_page = await self.get_html(route_url, self.session)
+            route_page = await self.get_html(route_url, async_session)
             # Get the route description
             route_description = route_page.find('div',
                                                 attrs={
@@ -425,72 +475,3 @@ class CragScraper:
         except Exception as e:
             logger.error(f"Error extracting route data: {str(e)}")
             return None
-
-    async def _get_sector_mappings(self) -> Dict[str, str]:
-        """
-        Fetch boulder-sector mappings from Supabase.
-
-        Returns:
-            Dict[str, str]: Dictionary mapping boulder URLs to sector IDs
-        """
-        try:
-            result = await create_mappings_from_excel(
-                self.supabase, "data/boulder_sector_mappings.xlsx")
-
-            # Create mapping dictionary
-            return {
-                item['boulder_url']: item['sector_id']
-                for item in result.data
-            }
-
-        except Exception as e:
-            logger.error(f"Error fetching sector mappings: {str(e)}")
-            raise
-
-    async def _store_data_in_supabase(self, crag: Crag) -> None:
-        """
-        Store the scraped data in Supabase tables.
-
-        Args:
-            crag (Crag): Crag object containing all scraped data
-        """
-        try:
-            # Get sector mappings
-            sector_mappings = await self._get_sector_mappings()
-
-            # Store boulders
-            for boulder in crag.boulders:
-                # Get sector ID from mapping
-                sector_id = sector_mappings.get(boulder.url)
-                if not sector_id:
-                    logger.warning(
-                        f"No sector mapping found for boulder: {boulder.url}")
-                    continue
-
-                # Start transaction
-                async with self.supabase.pool.acquire() as connection:
-                    async with connection.transaction():
-                        # Insert boulder
-                        boulder_data = {
-                            'sector_id': sector_id,
-                            **boulder.to_supabase_dict()
-                        }
-                        result = await connection.table('boulders').upsert(
-                            boulder_data,
-                            on_conflict='url').execute()
-                        boulder_id = result.data[0]['id']
-
-                        # Insert routes within same transaction
-                        for route in boulder.routes:
-                            route_data = {
-                                'boulder_id': boulder_id,
-                                **route.to_supabase_dict()
-                            }
-                            await connection.table('routes').upsert(
-                                route_data,
-                                on_conflict='url').execute()
-
-        except Exception as e:
-            logger.error(f"Error in transaction storing data in Supabase: "
-                         f"{str(e)}")
-            raise

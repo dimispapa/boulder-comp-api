@@ -19,6 +19,12 @@ class Route:
             'description': self.description,
         }
 
+    def __repr__(self) -> str:
+        """String representation for debugging and serialization."""
+        return (f"Route(name='{self.name}', url='{self.url}', "
+                f"grade='{self.grade}', rating='{self.rating}', "
+                f"description='{self.description}')")
+
 
 @dataclass
 class Boulder:
@@ -36,6 +42,12 @@ class Boulder:
             'gps_string': self.gps_string,
         }
 
+    def __repr__(self) -> str:
+        """String representation for debugging and serialization."""
+        return (f"Boulder(name='{self.name}', url='{self.url}', "
+                f"gps_postgis='{self.gps_postgis}', "
+                f"gps_string='{self.gps_string}')")
+
 
 @dataclass
 class Crag:
@@ -46,3 +58,7 @@ class Crag:
         return {
             'name': self.name,
         }
+
+    def __repr__(self) -> str:
+        """String representation for debugging and serialization."""
+        return f"Crag(name='{self.name}', boulders_count={len(self.boulders)})"

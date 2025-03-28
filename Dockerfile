@@ -5,11 +5,13 @@ WORKDIR /app
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app
+    PYTHONPATH=/app \
+    TZ=UTC
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install dependencies
@@ -22,5 +24,5 @@ COPY . .
 # Expose the port the app runs on
 EXPOSE $PORT
 
-# Command to run the application
-CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} 
+# Use shell form with proper signal handling
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --reload --log-level debug"]

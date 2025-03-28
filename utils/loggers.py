@@ -3,7 +3,7 @@ import logging
 import os
 
 # Only enable debug logging if DEBUG environment variable is set to true
-DEBUG_MODE = os.environ.get('DEBUG').lower() == 'true'
+DEBUG_MODE = os.environ.get('DEBUG', 'false').lower() == 'true'
 
 # Configure logging
 logging.basicConfig(

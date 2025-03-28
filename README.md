@@ -183,6 +183,80 @@ For Heroku deployment, these variables should be set using the Heroku CLI or das
   docker stats
   ```
 
+## Docker Development Tips
+
+### Essential Docker Commands
+```bash
+# Start all services (use --build after changing dependencies)
+docker compose up -d --build
+
+# View logs for all services or specific ones
+docker compose logs -f
+docker compose logs -f api          # FastAPI logs
+docker compose logs -f celery-worker # Celery logs
+
+# Stop all services
+docker compose down
+
+# Access container shell
+docker compose exec api bash
+docker compose exec celery-worker bash
+```
+
+### Understanding the `--build` Flag
+
+The `--build` flag is critical to understand:
+
+```bash
+# Without --build: Uses cached images, might miss dependency updates
+docker compose up -d
+
+# With --build: Forces rebuild with fresh dependencies
+docker compose up -d --build
+```
+
+When to use `--build`:
+- After modifying `requirements.txt`
+- After changing Dockerfile or Dockerfile.celery
+- If you encounter module import errors (e.g., "ModuleNotFoundError")
+- When switching branches with different dependencies
+
+Common errors without `--build`:
+- Missing module errors
+- Outdated dependencies
+- Changes to Docker configuration not applied
+
+### Troubleshooting Tips
+
+1. **Container Won't Start**:
+   - Check logs: `docker compose logs <service_name>`
+   - Verify environment variables in `.env`
+
+2. **Redis Connection Issues**:
+   ```bash
+   # Check Redis is running
+   docker compose ps redis
+   # Verify connection
+   docker compose exec redis redis-cli ping
+   ```
+
+3. **Celery Worker Issues**:
+   ```bash
+   # Check detailed logs
+   docker compose logs celery-worker
+   # Restart worker
+   docker compose restart celery-worker
+   ```
+
+4. **Cleanup and Maintenance**:
+   ```bash
+   # Clean up unused resources
+   docker system prune
+   
+   # Remove all stopped containers, unused networks, dangling images, and build cache
+   docker system prune -a
+   ```
+
 ## Database Design
 
 ## 🗄️ Database Schema

@@ -1,41 +1,81 @@
-version: '3.8'
-
 services:
   # FastAPI application
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    ports:
-      - "8000:8000"
-    environment:
-      - REDIS_URL=redis://redis:6379/0
-      - SUPABASE_URL=${SUPABASE_URL}
-      - SUPABASE_KEY=${SUPABASE_KEY}
+    build: .
+    command: uvicorn main:app --host ${API_HOST} --port ${API_PORT} --reload --log-level debug
     volumes:
       - .:/app
+    ports:
+      - "${API_PORT}:${API_PORT}"
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+      - REDIS_URL=${REDIS_URL}
+      - DEBUG=${DEBUG:-false}
+      - API_PREFIX=${API_PREFIX:-/api}
+      - API_HOST=${API_HOST:-0.0.0.0}
+      - API_PORT=${API_PORT:-8000}
+      - API_VERSION=${API_VERSION:-1.0.0}
+      - CRAGS_BASE_URL=${CRAGS_BASE_URL}
+      - CRAGS_USERNAME=${CRAGS_USERNAME}
+      - CRAGS_USERALIAS=${CRAGS_USERALIAS}
+      - CRAGS_PASSWORD=${CRAGS_PASSWORD}
+      - MAX_RETRIES=${MAX_RETRIES:-3}
+      - MIN_REQUEST_INTERVAL=${MIN_REQUEST_INTERVAL:-1.7}
+      - RETRY_DELAY=${RETRY_DELAY:-5}
+      - USER_AGENT_1=${USER_AGENT_1}
+      - USER_AGENT_2=${USER_AGENT_2}
+      - USER_AGENT_3=${USER_AGENT_3}
+      - USER_AGENT_4=${USER_AGENT_4}
+      - USER_AGENT_5=${USER_AGENT_5}
+      - TZ=${TZ:-UTC}
     depends_on:
       - redis
-    networks:
-      - boulder-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${API_PORT}/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   # Celery worker
   celery-worker:
     build:
       context: .
       dockerfile: Dockerfile.celery
-    environment:
-      - REDIS_URL=redis://redis:6379/0
-      - SUPABASE_URL=${SUPABASE_URL}
-      - SUPABASE_KEY=${SUPABASE_KEY}
+    command: celery -A tasks.celery_app worker --loglevel=debug
     volumes:
       - .:/app
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+      - REDIS_URL=${REDIS_URL}
+      - DEBUG=${DEBUG:-false}
+      - API_PREFIX=${API_PREFIX:-/api}
+      - API_HOST=${API_HOST:-0.0.0.0}
+      - API_PORT=${API_PORT:-8000}
+      - API_VERSION=${API_VERSION:-1.0.0}
+      - CRAGS_BASE_URL=${CRAGS_BASE_URL}
+      - CRAGS_USERNAME=${CRAGS_USERNAME}
+      - CRAGS_USERALIAS=${CRAGS_USERALIAS}
+      - CRAGS_PASSWORD=${CRAGS_PASSWORD}
+      - MAX_RETRIES=${MAX_RETRIES:-3}
+      - MIN_REQUEST_INTERVAL=${MIN_REQUEST_INTERVAL:-1.7}
+      - RETRY_DELAY=${RETRY_DELAY:-5}
+      - USER_AGENT_1=${USER_AGENT_1}
+      - USER_AGENT_2=${USER_AGENT_2}
+      - USER_AGENT_3=${USER_AGENT_3}
+      - USER_AGENT_4=${USER_AGENT_4}
+      - USER_AGENT_5=${USER_AGENT_5}
+      - TZ=${TZ:-UTC}
     depends_on:
       - redis
-    networks:
-      - boulder-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "celery", "-A", "tasks.celery_app", "inspect", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   # Redis (for Celery broker)
   redis:
@@ -44,13 +84,12 @@ services:
       - "6379:6379"
     volumes:
       - redis-data:/data
-    networks:
-      - boulder-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 volumes:
   redis-data:
-
-networks:
-  boulder-network:
-    driver: bridge 

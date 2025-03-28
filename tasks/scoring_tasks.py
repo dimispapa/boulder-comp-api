@@ -3,11 +3,11 @@ Celery tasks for calculating competition scores.
 """
 from tasks.celery_app import celery_app
 from scoring.core import ScoreCalculator
-from supabase import create_client
-import os
 from dotenv import load_dotenv
 import logging
 from typing import Dict, Any, List, Optional
+
+from utils.supabase import get_supabase_client
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 # Initialize Supabase client
-supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
+supabase = get_supabase_client()
 
 # Initialize score calculator
 score_calculator = ScoreCalculator(supabase)
@@ -38,13 +38,17 @@ async def calculate_scores(self, comp_id: str, category: Optional[str] = None):
         # Get competition details to validate categories
         comp = await score_calculator._get_competition(comp_id)
         if not comp:
-            return {"status": "error", "detail": f"Competition {comp_id} not found"}
+            return {
+                "status": "error",
+                "detail": f"Competition {comp_id} not found"
+            }
 
         # Validate category if specified
         if category and category not in comp['categories']:
             return {
                 "status": "error",
-                "detail": f"Category {category} not enabled for this competition"
+                "detail":
+                f"Category {category} not enabled for this competition"
             }
 
         # Calculate scores
@@ -55,9 +59,15 @@ async def calculate_scores(self, comp_id: str, category: Optional[str] = None):
             if category == "marathon":
                 return {"status": "success", "rankings": rankings["marathon"]}
             elif category == "boulder_beasts":
-                return {"status": "success", "rankings": rankings["boulder_beasts"]}
+                return {
+                    "status": "success",
+                    "rankings": rankings["boulder_beasts"]
+                }
             else:
-                return {"status": "error", "detail": f"Invalid category: {category}"}
+                return {
+                    "status": "error",
+                    "detail": f"Invalid category: {category}"
+                }
 
         return {"status": "success", "rankings": rankings}
 
