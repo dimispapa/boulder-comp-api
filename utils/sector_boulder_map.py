@@ -3,8 +3,8 @@ from utils.loggers import logger
 from supabase import Client
 
 
-async def create_mappings_from_excel(supabase: Client,
-                                     excel_path: str) -> list[dict]:
+def create_mappings_from_excel(supabase: Client,
+                               excel_path: str) -> list[dict]:
     """
     Create boulder-sector mappings in database from an Excel file.
 
@@ -14,7 +14,6 @@ async def create_mappings_from_excel(supabase: Client,
         and sector columns
     """
     try:
-
         # Read the Excel file
         df = pd.read_excel(excel_path)
 
@@ -26,7 +25,10 @@ async def create_mappings_from_excel(supabase: Client,
             for sector in sectors_result.data
         }
 
-        # Process each row in the Excel file
+        # Prepare all mappings in one batch
+        mapping_data = []
+        skipped_count = 0
+
         for _, row in df.iterrows():
             boulder_url = row['boulder_url']
             sector_name = row['sector_name']
@@ -35,18 +37,48 @@ async def create_mappings_from_excel(supabase: Client,
             sector_id = sector_name_to_id.get(sector_name)
             if not sector_id:
                 logger.warning(f"No sector found with name: {sector_name}")
+                skipped_count += 1
                 continue
 
-            # Insert the mapping
-            mapping_data = {'boulder_url': boulder_url, 'sector_id': sector_id}
+            # Add to batch
+            mapping_data.append({
+                'boulder_url': boulder_url,
+                'sector_id': sector_id
+            })
 
-            # Use upsert to handle duplicates
-            result = await supabase.table('boulder_sector_mappings').upsert(
-                mapping_data).execute()
-            logger.info(f"Upserted mapping for {boulder_url} -> {sector_name}")
+        # If we have mappings to insert
+        if mapping_data:
+            try:
+                # Get a connection from the pool and start a transaction
+                conn = supabase.pool.acquire()
+                conn.transaction()
 
-        logger.info(f"Successfully created mappings from Excel: {excel_path}")
-        return result.data
+                # Use upsert with on_conflict parameter to handle duplicates
+                result = conn.table('boulder_sector_mappings').upsert(
+                    mapping_data,
+                    on_conflict='boulder_url'
+                ).execute()
+
+                # If we got here without errors, commit the transaction
+                conn.commit()
+
+                logger.info(
+                    f"Successfully upserted {len(mapping_data)} "
+                    f"boulder-sector mappings (skipped {skipped_count})")
+                return result.data
+
+            except Exception as e:
+                # Rollback transaction on error
+                conn.rollback()
+                logger.error(f"Transaction error: {str(e)}, rolling back")
+                raise
+            finally:
+                # Always release the connection back to the pool
+                supabase.pool.release(conn)
+        else:
+            logger.warning(
+                f"No valid mappings found to insert (skipped {skipped_count})")
+            return []
 
     except Exception as e:
         logger.error(f"Error creating mappings from Excel: {str(e)}")

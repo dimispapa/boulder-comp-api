@@ -7,10 +7,14 @@ import os
 from urllib.parse import urljoin
 from dotenv import load_dotenv
 import traceback
+from pathlib import Path
+from datetime import datetime
 
 from utils.loggers import logger
-from utils.time_utils import format_time_from_seconds
-from tasks.scraper_tasks import scrape_crag_task
+from tasks.scraper_tasks import scrape_crag_task, store_crag_data_task
+from utils.task_status import (get_task_instance, prepare_basic_result,
+                               handle_completed_task, handle_in_progress_task,
+                               STATUS_ERROR)
 
 # Load environment variables
 load_dotenv()
@@ -48,120 +52,167 @@ async def start_scraping(background_tasks: BackgroundTasks,
         return {
             "status": "success",
             "message": "Scraping task started",
-            "task_id": task.id
+            "task_id": task.id,
+            "task_type": "scrape"
         }
     except Exception as e:
         raise HTTPException(status_code=500,
                             detail=f"Failed to start scraping: {str(e)}")
 
 
-@router.get("/status/{task_id}")
-async def get_scraping_status(task_id: str):
+@router.post("/store")
+async def start_storage(background_tasks: BackgroundTasks,
+                        file_path: str = None,
+                        crag_name: str = None):
     """
-    Get the status of a scraping task.
+    Start storing previously scraped crag data to the database.
+
+    Args:
+        file_path (str, optional): Path to the JSON file to store.
+        If not provided, will use the most recent file for
+        the given crag name.
+        crag_name (str, optional): Name of the crag to find the most
+        recent file for. Only used if file_path is not provided.
+
+    Returns:
+        dict: Status of the storage task
+    """
+    try:
+        # If no file path is provided,
+        # find the most recent one for the given crag
+        if not file_path:
+            if not crag_name:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Either file_path or crag_name must be provided")
+
+            # Format crag name to match file naming pattern
+            formatted_crag_name = crag_name.lower().replace(' ', '_')
+
+            # Get all matching files
+            data_dir = Path("data/scraped")
+            pattern = f"{formatted_crag_name}_*.json"
+            matching_files = list(data_dir.glob(pattern))
+
+            if not matching_files:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"No scraped data found for crag: {crag_name}")
+
+            # Sort by creation time (newest first)
+            matching_files.sort(key=lambda x: x.stat().st_ctime, reverse=True)
+            file_path = str(matching_files[0])
+
+        # Verify the file exists
+        if not Path(file_path).exists():
+            raise HTTPException(status_code=404,
+                                detail=f"File not found: {file_path}")
+
+        # Start the storage task
+        task = store_crag_data_task.delay(file_path)
+
+        return {
+            "status": "success",
+            "message": "Storage task started",
+            "task_id": task.id,
+            "file_path": file_path,
+            "task_type": "store"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500,
+                            detail=f"Failed to start storage task: {str(e)}")
+
+
+@router.get("/list-files")
+async def list_scraped_files(crag_name: str = None):
+    """
+    List all scraped data files, optionally filtered by crag name.
+
+    Args:
+        crag_name (str, optional): Filter files for a specific crag
+
+    Returns:
+        dict: List of available scraped data files
+    """
+    try:
+        data_dir = Path("data/scraped")
+
+        # Determine the pattern based on whether a crag name was provided
+        if crag_name:
+            formatted_crag_name = crag_name.lower().replace(' ', '_')
+            pattern = f"{formatted_crag_name}_*.json"
+        else:
+            pattern = "*.json"
+
+        # Get all matching files
+        matching_files = list(data_dir.glob(pattern))
+
+        # Format the results
+        files = []
+        for file_path in matching_files:
+            # Get file stats
+            stats = file_path.stat()
+            files.append({
+                "file_name":
+                file_path.name,
+                "file_path":
+                str(file_path),
+                "size_kb":
+                round(stats.st_size / 1024, 2),
+                "created":
+                datetime.fromtimestamp(stats.st_ctime).isoformat(),
+                "modified":
+                datetime.fromtimestamp(stats.st_mtime).isoformat()
+            })
+
+        # Sort by creation time (newest first)
+        files.sort(key=lambda x: x["created"], reverse=True)
+
+        return {
+            "status": "success",
+            "files": files,
+            "count": len(files),
+            "crag_filter": crag_name
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500,
+                            detail=f"Failed to list scraped files: {str(e)}")
+
+
+@router.get("/status/{task_id}")
+async def get_task_status(task_id: str, task_type: str = None):
+    """
+    Get the status of a task.
 
     Args:
         task_id (str): ID of the task to check
+        task_type (str, optional): Type of task ('scrape' or 'store')
+            If not provided, will try to determine automatically
 
     Returns:
         dict: Current status of the task
     """
     try:
-        task = scrape_crag_task.AsyncResult(task_id)
+        # Get the appropriate task instance
+        task, determined_task_type = get_task_instance(task_id, task_type)
 
-        # Basic status information
-        result = {
-            "task_id": task_id,
-            "state": task.state,
-        }
+        # Prepare basic result
+        result = prepare_basic_result(task_id, task, determined_task_type)
 
-        # Add more details based on task state
+        # Process based on task state
         if task.ready():
-            result["date_completed"] = (task.date_done.isoformat()
-                                        if task.date_done else None)
-
-            if task.successful():
-                # Check if result indicates an application-level error
-                task_result = task.result
-
-                # Check if result is a dict with status key
-                if (isinstance(task_result, dict) and "status" in task_result):
-                    # Use the application-level status
-                    result["status"] = task_result["status"]
-
-                    # Handle error status specially
-                    if task_result["status"] == "error":
-                        result["error"] = task_result.get(
-                            "detail", str(task_result))
-                        # Copy any other error details
-                        for key, value in task_result.items():
-                            if (key not in ["status"] and key not in result):
-                                result[key] = value
-                    else:
-                        # For success statuses, include full result
-                        result["result"] = task_result
-                else:
-                    # Default status if none in result
-                    result["status"] = "completed"
-                    result["result"] = task_result
-            else:
-                # Task failed at the Celery level
-                result["status"] = "failed"
-                result["error"] = str(task.result)
-
-                # Add traceback if available
-                if task.traceback:
-                    # Limit traceback length
-                    result["traceback"] = (task.traceback[-2000:] if len(
-                        task.traceback) > 2000 else task.traceback)
+            return handle_completed_task(task, result)
         else:
-            # For tasks in progress
-            result["status"] = "in_progress"
-
-            # Include any info the task might have published
-            if task.info:
-                result["progress_info"] = task.info
-
-                # Use more specific status if available in the task info
-                if "status" in task.info:
-                    task_status = task.info["status"]
-                    storage_statuses = [
-                        "storing_data", "data_stored", "storage_error"
-                    ]
-                    if task_status in storage_statuses:
-                        result["status"] = task_status
-
-                        # If there was a storage error, include it as an error
-                        storage_error = (task_status == "storage_error"
-                                         and "error" in task.info)
-                        if storage_error:
-                            result["error"] = task.info["error"]
-
-                # Format elapsed time if available
-                if "elapsed_seconds" in task.info:
-                    seconds = task.info["elapsed_seconds"]
-                    result["progress_info"]["elapsed_time"] = (
-                        format_time_from_seconds(seconds))
-
-                # Calculate completion percentage
-                has_boulder_counts = ("total_boulders" in task.info
-                                      and "completed_boulders" in task.info
-                                      and task.info["total_boulders"] > 0)
-                if has_boulder_counts:
-                    completed = task.info["completed_boulders"]
-                    total = task.info["total_boulders"]
-                    completion_percent = (completed / total) * 100
-                    result["progress_info"]["completion_percent"] = (
-                        f"{completion_percent:.1f}%")
-
-        return result
+            return handle_in_progress_task(task, result, determined_task_type)
 
     except Exception as e:
         # Provide detailed error about what went wrong
         error_traceback = traceback.format_exc()
 
         return {
-            "status": "error",
+            "status": STATUS_ERROR,
             "error": f"Failed to get task status: {str(e)}",
             "traceback": error_traceback
         }
