@@ -2,100 +2,211 @@
 FastAPI router for the scraping endpoints.
 """
 from fastapi import APIRouter, HTTPException, BackgroundTasks
-from supabase import create_client
 import os
-from scraper.core import CragScraper
-from celery import shared_task
+from urllib.parse import urljoin
+from dotenv import load_dotenv
+import traceback
+from pathlib import Path
+from datetime import datetime
 
+from utils.loggers import logger
+from tasks.scraper_tasks import scrape_crag_task, store_crag_data_task
+from utils.task_status import (get_task_instance, prepare_basic_result,
+                               handle_completed_task, handle_in_progress_task,
+                               STATUS_ERROR)
+
+# Load environment variables
+load_dotenv()
+BASE_URL = os.getenv("CRAGS_BASE_URL")
+
+# Initialize router
 router = APIRouter()
-
-# Initialize Supabase client
-supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
-
-# Default headers for 27crags
-HEADERS = {
-    'User-Agent': ('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
-                   'AppleWebKit/537.36 (KHTML, like Gecko) '
-                   'Chrome/126.0.0.0 Safari/537.36')
-}
-
-
-@shared_task
-async def scrape_crag_task(crag_url: str):
-    """Celery task to scrape a crag."""
-    try:
-        scraper = CragScraper(HEADERS, supabase)
-
-        # Login with credentials from environment
-        username = os.getenv("27CRAGS_USERNAME")
-        password = os.getenv("27CRAGS_PASSWORD")
-
-        if not username or not password:
-            raise HTTPException(status_code=500,
-                                detail="Missing 27crags credentials")
-
-        if not await scraper.login(username, password):
-            raise HTTPException(status_code=500,
-                                detail="Failed to login to 27crags")
-
-        # Start scraping
-        await scraper.scrape_crag(crag_url)
-        return {"status": "success"}
-
-    except Exception as e:
-        return {"status": "error", "detail": str(e)}
 
 
 @router.post("/start")
-async def start_scraping(
-        background_tasks: BackgroundTasks,
-        crag_url: str = "https://27crags.com/crags/inia-droushia"):
+async def start_scraping(background_tasks: BackgroundTasks,
+                         crag_name: str = "inia-droushia"):
     """
     Start scraping a crag from 27crags.com.
-    
+
     Args:
-        crag_url (str): URL of the crag to scrape. Defaults to Inia & Droushia.
-        
+        crag_name (str): Name of the crag to scrape.
+        Defaults to 'inia-droushia'.
+
     Returns:
         dict: Status of the scraping task
     """
     try:
-        # Queue the scraping task
+        crag_url = urljoin(BASE_URL, crag_name)
+        logger.debug(f"API route started scraping crag: {crag_url}")
+
+        # Use the proper registered task with the selected user agent
         task = scrape_crag_task.delay(crag_url)
 
         return {
             "status": "success",
             "message": "Scraping task started",
-            "task_id": task.id
+            "task_id": task.id,
+            "task_type": "scrape"
         }
-
     except Exception as e:
         raise HTTPException(status_code=500,
                             detail=f"Failed to start scraping: {str(e)}")
 
 
-@router.get("/status/{task_id}")
-async def get_scraping_status(task_id: str):
+@router.post("/store")
+async def start_storage(background_tasks: BackgroundTasks,
+                        file_path: str = None,
+                        crag_name: str = None):
     """
-    Get the status of a scraping task.
-    
+    Start storing previously scraped crag data to the database.
+
+    Args:
+        file_path (str, optional): Path to the JSON file to store.
+        If not provided, will use the most recent file for
+        the given crag name.
+        crag_name (str, optional): Name of the crag to find the most
+        recent file for. Only used if file_path is not provided.
+
+    Returns:
+        dict: Status of the storage task
+    """
+    try:
+        # If no file path is provided,
+        # find the most recent one for the given crag
+        if not file_path:
+            if not crag_name:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Either file_path or crag_name must be provided")
+
+            # Format crag name to match file naming pattern
+            formatted_crag_name = crag_name.lower().replace(' ', '_')
+
+            # Get all matching files
+            data_dir = Path("data/scraped")
+            pattern = f"{formatted_crag_name}_*.json"
+            matching_files = list(data_dir.glob(pattern))
+
+            if not matching_files:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"No scraped data found for crag: {crag_name}")
+
+            # Sort by creation time (newest first)
+            matching_files.sort(key=lambda x: x.stat().st_ctime, reverse=True)
+            file_path = str(matching_files[0])
+
+        # Verify the file exists
+        if not Path(file_path).exists():
+            raise HTTPException(status_code=404,
+                                detail=f"File not found: {file_path}")
+
+        # Start the storage task
+        task = store_crag_data_task.delay(file_path)
+
+        return {
+            "status": "success",
+            "message": "Storage task started",
+            "task_id": task.id,
+            "file_path": file_path,
+            "task_type": "store"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500,
+                            detail=f"Failed to start storage task: {str(e)}")
+
+
+@router.get("/list-files")
+async def list_scraped_files(crag_name: str = None):
+    """
+    List all scraped data files, optionally filtered by crag name.
+
+    Args:
+        crag_name (str, optional): Filter files for a specific crag
+
+    Returns:
+        dict: List of available scraped data files
+    """
+    try:
+        data_dir = Path("data/scraped")
+
+        # Determine the pattern based on whether a crag name was provided
+        if crag_name:
+            formatted_crag_name = crag_name.lower().replace(' ', '_')
+            pattern = f"{formatted_crag_name}_*.json"
+        else:
+            pattern = "*.json"
+
+        # Get all matching files
+        matching_files = list(data_dir.glob(pattern))
+
+        # Format the results
+        files = []
+        for file_path in matching_files:
+            # Get file stats
+            stats = file_path.stat()
+            files.append({
+                "file_name":
+                file_path.name,
+                "file_path":
+                str(file_path),
+                "size_kb":
+                round(stats.st_size / 1024, 2),
+                "created":
+                datetime.fromtimestamp(stats.st_ctime).isoformat(),
+                "modified":
+                datetime.fromtimestamp(stats.st_mtime).isoformat()
+            })
+
+        # Sort by creation time (newest first)
+        files.sort(key=lambda x: x["created"], reverse=True)
+
+        return {
+            "status": "success",
+            "files": files,
+            "count": len(files),
+            "crag_filter": crag_name
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500,
+                            detail=f"Failed to list scraped files: {str(e)}")
+
+
+@router.get("/status/{task_id}")
+async def get_task_status(task_id: str, task_type: str = None):
+    """
+    Get the status of a task.
+
     Args:
         task_id (str): ID of the task to check
-        
+        task_type (str, optional): Type of task ('scrape' or 'store')
+            If not provided, will try to determine automatically
+
     Returns:
         dict: Current status of the task
     """
     try:
-        task = scrape_crag_task.AsyncResult(task_id)
+        # Get the appropriate task instance
+        task, determined_task_type = get_task_instance(task_id, task_type)
 
+        # Prepare basic result
+        result = prepare_basic_result(task_id, task, determined_task_type)
+
+        # Process based on task state
         if task.ready():
-            if task.successful():
-                return {"status": "completed", "result": task.result}
-            else:
-                return {"status": "failed", "error": str(task.result)}
+            return handle_completed_task(task, result)
         else:
-            return {"status": "in_progress"}
+            return handle_in_progress_task(task, result, determined_task_type)
 
     except Exception as e:
-        raise HTTPException(status_code=500,
-                            detail=f"Failed to get task status: {str(e)}")
+        # Provide detailed error about what went wrong
+        error_traceback = traceback.format_exc()
+
+        return {
+            "status": STATUS_ERROR,
+            "error": f"Failed to get task status: {str(e)}",
+            "traceback": error_traceback
+        }

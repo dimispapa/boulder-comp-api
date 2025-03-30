@@ -21,7 +21,7 @@ API service for the Bouldering Festival Competition app, providing score calcula
 
 ## Project Structure
 
-```
+```file
 boulder-comp-api/
 ├── api/                  # FastAPI endpoints and route handlers
 ├── scraper/              # 27crags scraping logic
@@ -50,7 +50,8 @@ Create a `.env` file in the root directory with the following variables:
 ```env
 # Supabase Configuration
 SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_KEY=your-api-key
+SUPABASE_ANON_KEY=your-api-key
+SUPABASE_SERVICE_ROLE_KEY=your-service-api-key
 
 # Redis Configuration (for Celery)
 REDIS_URL=redis://localhost:6379/0
@@ -183,6 +184,80 @@ For Heroku deployment, these variables should be set using the Heroku CLI or das
   docker stats
   ```
 
+## Docker Development Tips
+
+### Essential Docker Commands
+```bash
+# Start all services (use --build after changing dependencies)
+docker compose up -d --build
+
+# View logs for all services or specific ones
+docker compose logs -f
+docker compose logs -f api          # FastAPI logs
+docker compose logs -f celery-worker # Celery logs
+
+# Stop all services
+docker compose down
+
+# Access container shell
+docker compose exec api bash
+docker compose exec celery-worker bash
+```
+
+### Understanding the `--build` Flag
+
+The `--build` flag is critical to understand:
+
+```bash
+# Without --build: Uses cached images, might miss dependency updates
+docker compose up -d
+
+# With --build: Forces rebuild with fresh dependencies
+docker compose up -d --build
+```
+
+When to use `--build`:
+- After modifying `requirements.txt`
+- After changing Dockerfile or Dockerfile.celery
+- If you encounter module import errors (e.g., "ModuleNotFoundError")
+- When switching branches with different dependencies
+
+Common errors without `--build`:
+- Missing module errors
+- Outdated dependencies
+- Changes to Docker configuration not applied
+
+### Troubleshooting Tips
+
+1. **Container Won't Start**:
+   - Check logs: `docker compose logs <service_name>`
+   - Verify environment variables in `.env`
+
+2. **Redis Connection Issues**:
+   ```bash
+   # Check Redis is running
+   docker compose ps redis
+   # Verify connection
+   docker compose exec redis redis-cli ping
+   ```
+
+3. **Celery Worker Issues**:
+   ```bash
+   # Check detailed logs
+   docker compose logs celery-worker
+   # Restart worker
+   docker compose restart celery-worker
+   ```
+
+4. **Cleanup and Maintenance**:
+   ```bash
+   # Clean up unused resources
+   docker system prune
+   
+   # Remove all stopped containers, unused networks, dangling images, and build cache
+   docker system prune -a
+   ```
+
 ## Database Design
 
 ## 🗄️ Database Schema
@@ -202,15 +277,16 @@ For Heroku deployment, these variables should be set using the Heroku CLI or das
 
 #### `boulders`
 
-| Field         | Type         | Notes                                |
-|---------------|--------------|--------------------------------------|
-| `id`          | UUID / PK    | Unique boulder ID                    |
-| `name`        | text         | Boulder name                         |
-| `url`         | text         | 27crags URL                          |
-| `sector_id`   | FK → sectors.id | Reference to sector              |
-| `gps_coords`  | text / point | Boulder's geographical coordinates   |
-| `created_at`  | timestamp    | When added                           |
-| `updated_at`  | timestamp    | Last updated                         |
+| Field         | Type           | Notes                                |
+|---------------|----------------|--------------------------------------|
+| `id`          | UUID / PK      | Unique boulder ID                    |
+| `name`        | text           | Boulder name                         |
+| `url`         | text           | 27crags URL                          |
+| `sector_id`   | FK → sectors.id| Reference to sector                  |
+| `gps_postgis`  | GEOGRAPHY(POINT)| PostGIS formatted coordinates (POINT(lon lat))|
+| `gps_string`  | text           | Raw coordinates string (lat, lon)    |
+| `created_at`  | timestamp      | When added                           |
+| `updated_at`  | timestamp      | Last updated                         |
 
 #### `boulder_photos`
 
@@ -234,6 +310,16 @@ For Heroku deployment, these variables should be set using the Heroku CLI or das
 | `rating`     | float / null | Route rating                             |
 | `created_at` | timestamp    | When added                               |
 | `updated_at` | timestamp    | Last updated                             |
+
+#### `boulder_sector_mappings`
+
+| Field         | Type           | Notes                               |
+|---------------|----------------|-------------------------------------|
+| `id`          | UUID / PK      | Unique mapping ID                   |
+| `boulder_url` | text           | URL of boulder on 27crags           |
+| `sector_id`   | FK → sectors.id| Reference to sector                 |
+| `created_at`  | timestamp      | When added                          |
+| `updated_at`  | timestamp      | Last updated                        |
 
 ---
 
@@ -421,7 +507,8 @@ This API is designed to be deployed using Docker:
 
    ```bash
    heroku config:set SUPABASE_URL=your_url
-   heroku config:set SUPABASE_KEY=your_key
+   heroku config:set SUPABASE_ANON-KEY=your_key
+   heroku config:set SUPABASE_SERVICE-ROLE-KEY=your_key
    # Add other environment variables
    ```
 

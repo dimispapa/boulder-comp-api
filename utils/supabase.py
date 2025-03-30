@@ -1,41 +1,155 @@
 import os
 from supabase import create_client, Client
 from dotenv import load_dotenv
-import logging
+import traceback
 
-# Set up logging
-logger = logging.getLogger(__name__)
+from utils.general_utils import normalize_url
+from scraper.models import Crag
+from utils.loggers import logger
 
 # Load environment variables
 load_dotenv()
 
 # Get Supabase credentials from environment variables
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
 # Verify credentials exist
-if not SUPABASE_URL or not SUPABASE_KEY:
-    logger.warning("Supabase credentials not found in environment variables. "
-                   "Using placeholder values for development.")
-    # Use placeholder values for development
-    SUPABASE_URL = "https://your-project.supabase.co"
-    SUPABASE_KEY = "your-api-key"
+if not SUPABASE_URL or not SUPABASE_ANON_KEY or not SUPABASE_SERVICE_ROLE_KEY:
+    logger.warning("Supabase credentials not found in environment variables.")
 
 
-def get_supabase_client() -> Client:
-    """
-    Get a Supabase client instance with the configured credentials.
-    
-    Returns:
-        Client: A Supabase client instance.
-    """
+def initialize_supabase_client() -> Client:
+    """Get a regular Supabase client with anon key for read operations."""
     try:
-        client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
         return client
     except Exception as e:
         logger.error(f"Error creating Supabase client: {str(e)}")
         raise
 
 
-# Initialize a global client for reuse
-supabase_client = get_supabase_client()
+def initialize_admin_supabase_client() -> Client:
+    """Get a Supabase client with admin privileges for write operations."""
+    try:
+        admin_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        return admin_client
+    except Exception as e:
+        logger.error(f"Error creating admin Supabase client: {str(e)}")
+        raise
+
+
+# Initialize both clients for reuse
+_regular_client = initialize_supabase_client()
+_admin_client = initialize_admin_supabase_client()
+
+
+def get_supabase_client() -> Client:
+    """Get the regular Supabase client (with anon key)."""
+    return _regular_client
+
+
+def get_admin_supabase_client() -> Client:
+    """Get the admin Supabase client (with service role key)."""
+    return _admin_client
+
+
+def get_boulder_mappings(supabase: Client) -> dict:
+    """
+    Get complete boulder mappings with all IDs directly from
+    boulder_sector_mappings table.
+
+    Args:
+        supabase (Client): Supabase client
+
+    Returns:
+        dict: Mapping of boulder URLs to sector IDs
+    """
+    try:
+        # Query the mappings table directly with all needed IDs
+        response = supabase.table("boulder_sector_mappings").select(
+            "boulder_url,sector_id").execute()
+        mappings = response.data
+
+        if not mappings:
+            logger.warning("No boulder-sector mappings found in database.")
+            return {}
+
+        # Create direct URL-to-sector-ID mapping
+        return {
+            normalize_url(mapping['boulder_url']): mapping['sector_id']
+            for mapping in mappings
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting boulder mappings: {str(e)}")
+        return {}
+
+
+def store_crag_data(crag: Crag, supabase: Client) -> dict:
+    """
+    Store crag data in Supabase using admin privileges.
+
+    Args:
+        crag (Crag): Crag object containing scraping data
+        supabase (Client): Supabase client with admin privileges.
+
+    Returns:
+        dict: Status of the storage operation
+    """
+    try:
+        # Create a counter to track stored items
+        stored_boulders = 0
+        stored_routes = 0
+        skipped_boulders = []
+
+        # Get boulder-sector mappings directly from the database table
+        sector_map = get_boulder_mappings(supabase)
+
+        # Store boulders and routes directly with the supabase client
+        for boulder in crag.boulders:
+            # Get sector ID from mapping
+            sector_id = sector_map.get(boulder.url)
+            if not sector_id:
+                logger.warning(
+                    f"No sector mapping found for boulder: {boulder.url}")
+                skipped_boulders.append(boulder.url)
+                continue
+
+            # Insert boulder
+            boulder_data = {
+                'sector_id': sector_id,
+                **boulder.to_supabase_dict()
+            }
+            result = supabase.table('boulders').upsert(
+                boulder_data, on_conflict='url').execute()
+
+            # Get the boulder_id from the result
+            boulder_id = result.data[0]['id']
+            stored_boulders += 1
+
+            # Insert routes
+            for route in boulder.routes:
+                route_data = {
+                    'boulder_id': boulder_id,
+                    **route.to_supabase_dict()
+                }
+                supabase.table('routes').upsert(route_data,
+                                                on_conflict='url').execute()
+                stored_routes += 1
+
+        return {
+            "status": "success",
+            "stored_boulders": stored_boulders,
+            "stored_routes": stored_routes,
+            "skipped_boulders": skipped_boulders
+        }
+
+    except Exception as e:
+        logger.error(f"Error storing crag data in Supabase: {str(e)}")
+        return {
+            "status": "error",
+            "detail": str(e),
+            "traceback": traceback.format_exc()
+        }

@@ -2,6 +2,12 @@
 .git/
 .gitignore
 
+# macOS system files
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
 # Python
 __pycache__/
 *.py[cod]
@@ -27,6 +33,7 @@ var/
 .coverage
 htmlcov/
 .venv/
+ENV/
 
 # Environment
 .env
@@ -45,5 +52,13 @@ docker-compose.yml
 *.swo
 
 # OS
-.DS_Store
-Thumbs.db 
+Thumbs.db
+
+# Documentation
+README.md
+CHANGELOG.md
+docs/
+
+# Test files
+tests/
+test_*.py 

@@ -1,3 +1,26 @@
+-- Drop tables in reverse order of dependencies
+DROP TABLE IF EXISTS boulder_beasts_rankings CASCADE;
+DROP TABLE IF EXISTS marathon_rankings CASCADE;
+DROP TABLE IF EXISTS scored_ascents CASCADE;
+DROP TABLE IF EXISTS master_grade_bonus CASCADE;
+DROP TABLE IF EXISTS team_ascent_bonus CASCADE;
+DROP TABLE IF EXISTS unique_ascent_bonus CASCADE;
+DROP TABLE IF EXISTS volume_bonus CASCADE;
+DROP TABLE IF EXISTS base_points CASCADE;
+DROP TABLE IF EXISTS ascents CASCADE;
+DROP TABLE IF EXISTS participants CASCADE;
+DROP TABLE IF EXISTS teams CASCADE;
+DROP TABLE IF EXISTS competitions CASCADE;
+DROP TABLE IF EXISTS routes CASCADE;
+DROP TABLE IF EXISTS boulder_photos CASCADE;
+DROP TABLE IF EXISTS boulder_sector_mappings CASCADE;
+DROP TABLE IF EXISTS boulders CASCADE;
+DROP TABLE IF EXISTS sectors CASCADE;
+
+-- Drop enum types
+DROP TYPE IF EXISTS competition_status CASCADE;
+DROP TYPE IF EXISTS competition_category CASCADE;
+
 -- Enable necessary extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "postgis";
@@ -11,21 +34,61 @@ CREATE TABLE sectors (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name TEXT NOT NULL UNIQUE,
     description TEXT,
-    gps_coords GEOGRAPHY(POINT),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Insert initial sectors
+INSERT INTO sectors (id, name) VALUES
+    (uuid_generate_v4(), 'Inia'),
+    (uuid_generate_v4(), 'Pano Droushia'),
+    (uuid_generate_v4(), 'Kato Droushia'),
+    (uuid_generate_v4(), 'Alikou'),
+    (uuid_generate_v4(), 'Kari'),
+    (uuid_generate_v4(), 'Gerakopetra'),
+    (uuid_generate_v4(), 'Pano Akamas'),
+    (uuid_generate_v4(), 'Panorama');
+
 -- Create boulders table
 CREATE TABLE boulders (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name TEXT NOT NULL,
-    url TEXT NOT NULL,
     sector_id UUID NOT NULL REFERENCES sectors(id) ON DELETE RESTRICT,
-    gps_coords GEOGRAPHY(POINT),
+    name TEXT NOT NULL,
+    url TEXT NOT NULL UNIQUE,
+    gps_postgis GEOGRAPHY(POINT),
+    gps_string TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- Create boulder-sector mapping table
+CREATE TABLE boulder_sector_mappings (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    boulder_url TEXT NOT NULL UNIQUE,
+    sector_name TEXT NOT NULL,
+    sector_id UUID NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    
+    -- Add constraints to ensure data integrity
+    CONSTRAINT fk_sector_name FOREIGN KEY (sector_name) REFERENCES sectors(name),
+    CONSTRAINT fk_sector_id FOREIGN KEY (sector_id) REFERENCES sectors(id)
+);
+
+-- Add a trigger to automatically populate sector_id when sector_name is inserted/updated
+CREATE OR REPLACE FUNCTION set_sector_id_from_name() 
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Look up the sector_id based on the sector_name
+    SELECT id INTO NEW.sector_id FROM sectors WHERE name = NEW.sector_name;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER before_insert_or_update_boulder_sector_mappings
+BEFORE INSERT OR UPDATE ON boulder_sector_mappings
+FOR EACH ROW
+EXECUTE FUNCTION set_sector_id_from_name();
 
 -- Create boulder_photos table
 CREATE TABLE boulder_photos (
@@ -43,9 +106,10 @@ CREATE TABLE routes (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     boulder_id UUID NOT NULL REFERENCES boulders(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
-    url TEXT NOT NULL,
+    url TEXT NOT NULL UNIQUE,
     grade TEXT NOT NULL,
     rating FLOAT,
+    description TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -188,6 +252,7 @@ CREATE INDEX idx_marathon_rankings_competition_id ON marathon_rankings(competiti
 CREATE INDEX idx_marathon_rankings_team_id ON marathon_rankings(team_id);
 CREATE INDEX idx_boulder_beasts_rankings_competition_id ON boulder_beasts_rankings(competition_id);
 CREATE INDEX idx_boulder_beasts_rankings_participant_id ON boulder_beasts_rankings(participant_id);
+CREATE INDEX idx_boulder_sector_mappings_url ON boulder_sector_mappings(boulder_url);
 
 -- Create RLS (Row Level Security) policies
 ALTER TABLE sectors ENABLE ROW LEVEL SECURITY;
