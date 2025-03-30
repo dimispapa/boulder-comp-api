@@ -11,13 +11,10 @@ import random
 import json
 from pathlib import Path
 from datetime import datetime
-import logging
 
 from scraper.models import Crag, Boulder, Route
-from utils.supabase import get_supabase_client, store_crag_data
-
-# Set up logging
-logger = logging.getLogger(__name__)
+from utils.supabase import get_admin_supabase_client, store_crag_data
+from utils.loggers import logger
 
 # Load environment variables
 load_dotenv()
@@ -34,8 +31,8 @@ USER_AGENTS = [
 # Remove any None values in case some weren't defined
 USER_AGENTS = [ua for ua in USER_AGENTS if ua]
 
-# Initialize Supabase client
-supabase = get_supabase_client()
+# Initialize Supabase client with admin privileges
+supabase = get_admin_supabase_client()
 
 # Create directory for storing scraped data
 SCRAPED_DATA_DIR = Path("data/scraped")
@@ -256,7 +253,7 @@ def store_crag_data_task(self, file_path: str):
             })
 
         # Store the data using the existing utility function
-        storage_result = store_crag_data(supabase, crag_data)
+        storage_result = store_crag_data(crag_data, supabase)
 
         return {
             "status": "success",

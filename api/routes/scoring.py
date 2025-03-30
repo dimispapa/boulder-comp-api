@@ -3,27 +3,22 @@ FastAPI router for the scoring endpoints.
 """
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
-from typing import Dict, Any, List, Optional
-from tasks.scoring_tasks import calculate_scores
-import logging
-from supabase import create_client
-import os
+from typing import Dict, Any, Optional
 from scoring.core import ScoreCalculator
 from celery import shared_task
 from datetime import datetime
 from dotenv import load_dotenv
+from utils.supabase import get_admin_supabase_client
+from utils.loggers import logger
 
 # Load environment variables
 load_dotenv()
-
-# Set up logging
-logger = logging.getLogger(__name__)
 
 # Initialize router
 router = APIRouter()
 
 # Initialize Supabase client
-supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
+supabase = get_admin_supabase_client()
 
 # Initialize score calculator
 score_calculator = ScoreCalculator(supabase)

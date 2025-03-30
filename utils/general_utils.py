@@ -1,5 +1,5 @@
 """
-Utility functions for time formatting and calculations.
+Utility functions for general purposes.
 """
 
 
@@ -22,3 +22,18 @@ def format_time_from_seconds(seconds: int) -> str:
         return f"{minutes}m {seconds}s"
     else:
         return f"{seconds}s"
+
+
+def normalize_url(url: str) -> str:
+    """
+    Normalize URLs to consistently exclude www. for 27crags.com
+
+    Args:
+        url (str): URL to normalize
+
+    Returns:
+        str: Normalized URL without www.
+    """
+    if url and "www.27crags.com" in url:
+        return url.replace("https://www.27crags.com", "https://27crags.com")
+    return url

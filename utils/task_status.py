@@ -3,7 +3,7 @@ Utility functions for handling task status operations.
 """
 from celery.result import AsyncResult
 from typing import Dict, Any, Tuple
-from utils.time_utils import format_time_from_seconds
+from utils.general_utils import format_time_from_seconds
 
 # Task type constants
 TASK_TYPE_SCRAPE = "scrape"

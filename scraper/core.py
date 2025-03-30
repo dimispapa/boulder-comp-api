@@ -15,6 +15,7 @@ from urllib.parse import urljoin
 from dotenv import load_dotenv
 import random
 
+from utils.general_utils import normalize_url
 from utils.loggers import logger
 from .models import Crag, Boulder, Route
 
@@ -306,7 +307,7 @@ class CragScraper:
                         # Extract URL before processing boulder
                         boulder_url = urljoin(self.domain,
                                               boulder_element['href'])
-
+                        boulder_url = normalize_url(boulder_url)
                         # Extract boulder data
                         boulder = await self._extract_boulder_data(
                             boulder_element, async_session)
@@ -437,6 +438,7 @@ class CragScraper:
 
             # Extract route URL and name
             route_url = urljoin(self.domain, anchor['href'])
+            route_url = normalize_url(route_url)
             route_name = anchor.text.strip()
 
             # Extract grade

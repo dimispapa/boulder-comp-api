@@ -50,7 +50,8 @@ Create a `.env` file in the root directory with the following variables:
 ```env
 # Supabase Configuration
 SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_KEY=your-api-key
+SUPABASE_ANON_KEY=your-api-key
+SUPABASE_SERVICE_ROLE_KEY=your-service-api-key
 
 # Redis Configuration (for Celery)
 REDIS_URL=redis://localhost:6379/0
@@ -506,7 +507,8 @@ This API is designed to be deployed using Docker:
 
    ```bash
    heroku config:set SUPABASE_URL=your_url
-   heroku config:set SUPABASE_KEY=your_key
+   heroku config:set SUPABASE_ANON-KEY=your_key
+   heroku config:set SUPABASE_SERVICE-ROLE-KEY=your_key
    # Add other environment variables
    ```
 

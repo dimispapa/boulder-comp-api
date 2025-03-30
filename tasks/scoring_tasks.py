@@ -4,13 +4,10 @@ Celery tasks for calculating competition scores.
 from tasks.celery_app import celery_app
 from scoring.core import ScoreCalculator
 from dotenv import load_dotenv
-import logging
-from typing import Dict, Any, List, Optional
+from typing import Optional
 
 from utils.supabase import get_supabase_client
-
-# Set up logging
-logger = logging.getLogger(__name__)
+from utils.loggers import logger
 
 # Load environment variables
 load_dotenv()
@@ -26,11 +23,11 @@ score_calculator = ScoreCalculator(supabase)
 async def calculate_scores(self, comp_id: str, category: Optional[str] = None):
     """
     Celery task to calculate scores for a competition.
-    
+
     Args:
         comp_id (str): ID of the competition
         category (str, optional): Filter by category ("marathon" or "boulder_beasts")
-        
+
     Returns:
         dict: Status and result of the score calculation
     """

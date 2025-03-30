@@ -2,7 +2,6 @@
 FastAPI router for the scraping endpoints.
 """
 from fastapi import APIRouter, HTTPException, BackgroundTasks
-from supabase import create_client
 import os
 from urllib.parse import urljoin
 from dotenv import load_dotenv
@@ -19,14 +18,9 @@ from utils.task_status import (get_task_instance, prepare_basic_result,
 # Load environment variables
 load_dotenv()
 BASE_URL = os.getenv("CRAGS_BASE_URL")
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 # Initialize router
 router = APIRouter()
-
-# Initialize Supabase client
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
 @router.post("/start")

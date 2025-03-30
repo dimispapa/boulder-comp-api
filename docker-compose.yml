@@ -10,7 +10,8 @@ services:
       - "${API_PORT}:${API_PORT}"
     environment:
       - SUPABASE_URL=${SUPABASE_URL}
-      - SUPABASE_KEY=${SUPABASE_KEY}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
       - REDIS_URL=${REDIS_URL}
       - DEBUG=${DEBUG:-false}
       - API_PREFIX=${API_PREFIX:-/api}
@@ -50,7 +51,8 @@ services:
       - ./data:/app/data
     environment:
       - SUPABASE_URL=${SUPABASE_URL}
-      - SUPABASE_KEY=${SUPABASE_KEY}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
       - REDIS_URL=${REDIS_URL}
       - DEBUG=${DEBUG:-false}
       - API_PREFIX=${API_PREFIX:-/api}

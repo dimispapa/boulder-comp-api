@@ -18,6 +18,26 @@ logging.getLogger('google').setLevel(logging.WARNING)
 # Create logger
 logger = logging.getLogger('boulder-comp-api')
 
+# Add filter to console output
+console_handler = logging.StreamHandler(sys.stdout)
+logger.addHandler(console_handler)
+
+
+# Function to get module-specific logger that inherits from main logger
+def get_logger(module_name):
+    """
+    Get a logger for a specific module that inherits settings
+    from the main logger.
+
+    Args:
+        module_name (str): Name of the module (typically __name__)
+
+    Returns:
+        logging.Logger: A logger configured with the main logger's settings
+    """
+    child_logger = logger.getChild(module_name)
+    return child_logger
+
 
 # Optional: Add filter to exclude logs from showing in the terminal
 class ExcludeConsoleFilter(logging.Filter):

@@ -1,53 +1,58 @@
 import os
 from supabase import create_client, Client
 from dotenv import load_dotenv
-import logging
 import traceback
 
+from utils.general_utils import normalize_url
 from scraper.models import Crag
-
-# Set up logging
-logger = logging.getLogger(__name__)
+from utils.loggers import logger
 
 # Load environment variables
 load_dotenv()
 
 # Get Supabase credentials from environment variables
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
 # Verify credentials exist
-if not SUPABASE_URL or not SUPABASE_KEY:
+if not SUPABASE_URL or not SUPABASE_ANON_KEY or not SUPABASE_SERVICE_ROLE_KEY:
     logger.warning("Supabase credentials not found in environment variables.")
 
 
 def initialize_supabase_client() -> Client:
-    """
-    Get a Supabase client instance with the configured credentials.
-
-    Returns:
-        Client: A Supabase client instance.
-    """
+    """Get a regular Supabase client with anon key for read operations."""
     try:
-        client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
         return client
     except Exception as e:
         logger.error(f"Error creating Supabase client: {str(e)}")
         raise
 
 
-# Initialize a global client for reuse
-supabase_client = initialize_supabase_client()
+def initialize_admin_supabase_client() -> Client:
+    """Get a Supabase client with admin privileges for write operations."""
+    try:
+        admin_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        return admin_client
+    except Exception as e:
+        logger.error(f"Error creating admin Supabase client: {str(e)}")
+        raise
+
+
+# Initialize both clients for reuse
+_regular_client = initialize_supabase_client()
+_admin_client = initialize_admin_supabase_client()
 
 
 def get_supabase_client() -> Client:
-    """
-    Get the initialized Supabase client.
+    """Get the regular Supabase client (with anon key)."""
+    return _regular_client
 
-    Returns:
-        Client: The initialized Supabase client.
-    """
-    return supabase_client
+
+def get_admin_supabase_client() -> Client:
+    """Get the admin Supabase client (with service role key)."""
+    return _admin_client
 
 
 def get_boulder_mappings(supabase: Client) -> dict:
@@ -73,7 +78,7 @@ def get_boulder_mappings(supabase: Client) -> dict:
 
         # Create direct URL-to-sector-ID mapping
         return {
-            mapping['boulder_url']: mapping['sector_id']
+            normalize_url(mapping['boulder_url']): mapping['sector_id']
             for mapping in mappings
         }
 
@@ -82,13 +87,13 @@ def get_boulder_mappings(supabase: Client) -> dict:
         return {}
 
 
-def store_crag_data(supabase: Client, crag: Crag) -> dict:
+def store_crag_data(crag: Crag, supabase: Client) -> dict:
     """
-    Store crag data in Supabase.
+    Store crag data in Supabase using admin privileges.
 
     Args:
-        supabase (Client): Supabase client
         crag (Crag): Crag object containing scraping data
+        supabase (Client): Supabase client with admin privileges.
 
     Returns:
         dict: Status of the storage operation

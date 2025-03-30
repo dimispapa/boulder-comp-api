@@ -9,8 +9,12 @@
       "description": "Your Supabase project URL",
       "required": true
     },
-    "SUPABASE_KEY": {
-      "description": "Your Supabase API key",
+    "SUPABASE_ANON_KEY": {
+      "description": "Your Supabase anon key",
+      "required": true
+    },
+    "SUPABASE_SERVICE_ROLE_KEY": {
+      "description": "Your Supabase service role key",
       "required": true
     }
   },
