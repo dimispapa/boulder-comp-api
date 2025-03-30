@@ -453,9 +453,10 @@ class CragScraper:
                 return None
 
             # Extract rating
-            rating = route_element.find('div', attrs={
-                'class': 'rating'
-            }).text.strip()
+            rating = float(
+                route_element.find('div', attrs={
+                    'class': 'rating'
+                }).text.strip())
 
             # Get route page
             route_page = await self.get_html(route_url, async_session)

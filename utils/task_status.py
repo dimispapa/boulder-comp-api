@@ -180,10 +180,10 @@ def handle_in_progress_task(task: AsyncResult, base_result: Dict[str, Any],
     # Format elapsed time if available
     if "elapsed_seconds" in task.info:
         seconds = task.info["elapsed_seconds"]
-        result["progress_info"]["elapsed_time"] = (
-            format_time_from_seconds(seconds))
+        result["progress_info"]["elapsed_time"] = format_time_from_seconds(
+            seconds)
 
-    # Calculate completion percentage for scraping tasks
+    # Calculate completion percentage and estimated time for scraping tasks
     if task_type == TASK_TYPE_SCRAPE:
         add_scraping_progress_info(task, result)
 
@@ -193,19 +193,41 @@ def handle_in_progress_task(task: AsyncResult, base_result: Dict[str, Any],
 def add_scraping_progress_info(task: AsyncResult, result: Dict[str,
                                                                Any]) -> None:
     """
-    Add scraping-specific progress information to the result.
+    Add scraping-specific progress information to the result, including
+    completion percentage and estimated time remaining.
 
     Args:
         task (AsyncResult): The Celery task
         result (Dict[str, Any]): The result dictionary to update
     """
+    # Check if we have the necessary boulder count information
     has_boulder_counts = ("total_boulders" in task.info
                           and "completed_boulders" in task.info
                           and task.info["total_boulders"] > 0)
 
-    if has_boulder_counts:
-        completed = task.info["completed_boulders"]
-        total = task.info["total_boulders"]
-        completion_percent = (completed / total) * 100
-        result["progress_info"]["completion_percent"] = (
-            f"{completion_percent:.1f}%")
+    if not has_boulder_counts:
+        return
+
+    # Get the counts for calculations
+    completed = task.info["completed_boulders"]
+    total = task.info["total_boulders"]
+
+    # Calculate completion percentage
+    completion_percent = (completed / total) * 100
+    result["progress_info"][
+        "completion_percent"] = f"{completion_percent:.1f}%"
+
+    # Calculate estimated time remaining if we have elapsed time
+    if completed > 0 and "elapsed_seconds" in task.info:
+        elapsed = task.info["elapsed_seconds"]
+
+        # Calculate seconds per boulder
+        sec_per_boulder = elapsed / completed
+
+        # Estimate remaining seconds
+        remaining_boulders = total - completed
+        remaining_seconds = int(remaining_boulders * sec_per_boulder)
+
+        # Format and add the remaining time
+        remaining_time = format_time_from_seconds(remaining_seconds)
+        result["progress_info"]["estimated_time_remaining"] = remaining_time

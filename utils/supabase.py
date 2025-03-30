@@ -5,7 +5,6 @@ import logging
 import traceback
 
 from scraper.models import Crag
-from utils.sector_boulder_map import create_mappings_from_excel
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -51,6 +50,38 @@ def get_supabase_client() -> Client:
     return supabase_client
 
 
+def get_boulder_mappings(supabase: Client) -> dict:
+    """
+    Get complete boulder mappings with all IDs directly from
+    boulder_sector_mappings table.
+
+    Args:
+        supabase (Client): Supabase client
+
+    Returns:
+        dict: Mapping of boulder URLs to sector IDs
+    """
+    try:
+        # Query the mappings table directly with all needed IDs
+        response = supabase.table("boulder_sector_mappings").select(
+            "boulder_url,sector_id").execute()
+        mappings = response.data
+
+        if not mappings:
+            logger.warning("No boulder-sector mappings found in database.")
+            return {}
+
+        # Create direct URL-to-sector-ID mapping
+        return {
+            mapping['boulder_url']: mapping['sector_id']
+            for mapping in mappings
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting boulder mappings: {str(e)}")
+        return {}
+
+
 def store_crag_data(supabase: Client, crag: Crag) -> dict:
     """
     Store crag data in Supabase.
@@ -68,67 +99,47 @@ def store_crag_data(supabase: Client, crag: Crag) -> dict:
         stored_routes = 0
         skipped_boulders = []
 
-        # Get sector mappings
-        sector_mappings = create_mappings_from_excel(
-            supabase, "data/boulder_sector_mappings.xlsx")
+        # Get boulder-sector mappings directly from the database table
+        sector_map = get_boulder_mappings(supabase)
 
-        sector_map = {
-            item['boulder_url']: item['sector_id']
-            for item in sector_mappings
-        }
+        # Store boulders and routes directly with the supabase client
+        for boulder in crag.boulders:
+            # Get sector ID from mapping
+            sector_id = sector_map.get(boulder.url)
+            if not sector_id:
+                logger.warning(
+                    f"No sector mapping found for boulder: {boulder.url}")
+                skipped_boulders.append(boulder.url)
+                continue
 
-        # Start transaction
-        connection = supabase.pool.acquire()
-        try:
-            connection.transaction()
-
-            # Store boulders
-            for boulder in crag.boulders:
-                # Get sector ID from mapping
-                sector_id = sector_map.get(boulder.url)
-                if not sector_id:
-                    logger.warning(
-                        f"No sector mapping found for boulder: {boulder.url}")
-                    skipped_boulders.append(boulder.url)
-                    continue
-
-                # Insert boulder
-                boulder_data = {
-                    'sector_id': sector_id,
-                    **boulder.to_supabase_dict()
-                }
-                result = connection.table('boulders').upsert(
-                    boulder_data, on_conflict='url').execute()
-                boulder_id = result.data[0]['id']
-                stored_boulders += 1
-
-                # Insert routes within same transaction
-                for route in boulder.routes:
-                    route_data = {
-                        'boulder_id': boulder_id,
-                        **route.to_supabase_dict()
-                    }
-                    connection.table('routes').upsert(
-                        route_data, on_conflict='url').execute()
-                    stored_routes += 1
-
-            # Commit the transaction if we got here without errors
-            connection.commit()
-
-            return {
-                "status": "success",
-                "stored_boulders": stored_boulders,
-                "stored_routes": stored_routes,
-                "skipped_boulders": skipped_boulders
+            # Insert boulder
+            boulder_data = {
+                'sector_id': sector_id,
+                **boulder.to_supabase_dict()
             }
-        except Exception as e:
-            # Rollback transaction on error
-            connection.rollback()
-            logger.error(f"Transaction error: {str(e)}, rolling back")
-            raise
-        finally:
-            # Always release the connection back to the pool
-            supabase.pool.release(connection)
+            result = supabase.table('boulders').upsert(
+                boulder_data, on_conflict='url').execute()
+
+            # Get the boulder_id from the result
+            boulder_id = result.data[0]['id']
+            stored_boulders += 1
+
+            # Insert routes
+            for route in boulder.routes:
+                route_data = {
+                    'boulder_id': boulder_id,
+                    **route.to_supabase_dict()
+                }
+                supabase.table('routes').upsert(route_data,
+                                                on_conflict='url').execute()
+                stored_routes += 1
+
+        return {
+            "status": "success",
+            "stored_boulders": stored_boulders,
+            "stored_routes": stored_routes,
+            "skipped_boulders": skipped_boulders
+        }
 
     except Exception as e:
         logger.error(f"Error storing crag data in Supabase: {str(e)}")

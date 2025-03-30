@@ -65,10 +65,30 @@ CREATE TABLE boulders (
 CREATE TABLE boulder_sector_mappings (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     boulder_url TEXT NOT NULL UNIQUE,
-    sector_id UUID NOT NULL REFERENCES sectors(id),
+    sector_name TEXT NOT NULL,
+    sector_id UUID NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    
+    -- Add constraints to ensure data integrity
+    CONSTRAINT fk_sector_name FOREIGN KEY (sector_name) REFERENCES sectors(name),
+    CONSTRAINT fk_sector_id FOREIGN KEY (sector_id) REFERENCES sectors(id)
 );
+
+-- Add a trigger to automatically populate sector_id when sector_name is inserted/updated
+CREATE OR REPLACE FUNCTION set_sector_id_from_name() 
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Look up the sector_id based on the sector_name
+    SELECT id INTO NEW.sector_id FROM sectors WHERE name = NEW.sector_name;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER before_insert_or_update_boulder_sector_mappings
+BEFORE INSERT OR UPDATE ON boulder_sector_mappings
+FOR EACH ROW
+EXECUTE FUNCTION set_sector_id_from_name();
 
 -- Create boulder_photos table
 CREATE TABLE boulder_photos (

@@ -15,7 +15,6 @@ import logging
 
 from scraper.models import Crag, Boulder, Route
 from utils.supabase import get_supabase_client, store_crag_data
-from utils.time_utils import format_time_from_seconds
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -96,26 +95,6 @@ def scrape_crag_task(self, crag_url: str):
         # Clean up the loop
         loop.close()
 
-        # Use our local copy of progress info instead of self.info
-        if (progress_info.get("total_boulders", 0) > 0
-                and progress_info.get("completed_boulders", 0) > 0):
-
-            total = progress_info["total_boulders"]
-            completed = progress_info["completed_boulders"]
-            elapsed = progress_info["elapsed_seconds"]
-
-            # Only estimate if we have some progress
-            if completed > 0:
-                # Calculate seconds per boulder
-                sec_per_boulder = elapsed / completed
-                # Estimate remaining seconds
-                remaining_boulders = total - completed
-                remaining_seconds = int(remaining_boulders * sec_per_boulder)
-
-                # Format remaining time
-                remaining_time = format_time_from_seconds(remaining_seconds)
-                progress_info["estimated_time_remaining"] = remaining_time
-
         # Save data to a JSON file if it's a valid Crag object
         file_path = None
         if isinstance(crag_data, Crag):
@@ -183,27 +162,69 @@ def save_crag_to_json(crag: Crag, file_path: Path) -> dict:
         dict: Status of the operation
     """
     try:
+        # Log the absolute path we're trying to write to
+        abs_path = file_path.absolute()
+        logger.info(f"Attempting to save data to file: {abs_path}")
+
+        # Check if directory exists and is writable
+        dir_path = file_path.parent
+        if not dir_path.exists():
+            logger.warning(f"Directory does not exist: {dir_path}")
+            logger.info(f"Creating directory: {dir_path}")
+            dir_path.mkdir(parents=True, exist_ok=True)
+
+        # Check write permissions
+        if not os.access(str(dir_path), os.W_OK):
+            logger.error(f"No write permission for directory: {dir_path}")
+            return {
+                "status": "error",
+                "detail": f"No write permission for directory: {dir_path}"
+            }
+
         # Convert Crag object to a serializable dictionary
         crag_dict = {
             "name":
             crag.name,
             "boulders": [{
-                "name": boulder.name,
-                "url": boulder.url,
-                "image_url": boulder.image_url,
-                "coordinates": boulder.coordinates,
-                "description": boulder.description,
-                "routes": [route.__dict__ for route in boulder.routes]
+                "name":
+                boulder.name,
+                "url":
+                boulder.url,
+                "gps_postgis":
+                boulder.gps_postgis,
+                "gps_string":
+                boulder.gps_string,
+                "routes": [{
+                    "name": route.name,
+                    "url": route.url,
+                    "grade": route.grade,
+                    "rating": route.rating,
+                    "description": route.description
+                } for route in boulder.routes]
             } for boulder in crag.boulders]
         }
+
+        # Log file details before writing
+        logger.info(
+            f"Preparing to write {len(crag.boulders)} boulders to {file_path}")
 
         # Write to file
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(crag_dict, f, ensure_ascii=False, indent=2)
 
+        # Verify file was created
+        if file_path.exists():
+            file_size = file_path.stat().st_size
+            logger.info(
+                f"File successfully written: {file_path} ({file_size} bytes)")
+        else:
+            logger.error(f"File was not created: {file_path}")
+
         return {"status": "success", "file_path": str(file_path)}
 
     except Exception as e:
+        logger.error(f"Error saving crag data to JSON: {str(e)}")
+        logger.error(traceback.format_exc())
         return {
             "status": "error",
             "detail": str(e),
@@ -283,9 +304,8 @@ def load_crag_from_json(file_path: str) -> Crag:
             # Create Boulder object with routes
             boulder = Boulder(name=boulder_dict["name"],
                               url=boulder_dict["url"],
-                              image_url=boulder_dict["image_url"],
-                              coordinates=boulder_dict["coordinates"],
-                              description=boulder_dict["description"],
+                              gps_postgis=boulder_dict["gps_postgis"],
+                              gps_string=boulder_dict["gps_string"],
                               routes=routes)
             boulders.append(boulder)
 

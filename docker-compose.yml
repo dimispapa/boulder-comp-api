@@ -2,9 +2,10 @@ services:
   # FastAPI application
   api:
     build: .
-    command: uvicorn main:app --host ${API_HOST} --port ${API_PORT} --reload --log-level debug
+    command: bash -c "/app/scripts/setup_dirs.sh && uvicorn main:app --host ${API_HOST} --port ${API_PORT} --reload --log-level debug"
     volumes:
       - .:/app
+      - ./data:/app/data
     ports:
       - "${API_PORT}:${API_PORT}"
     environment:
@@ -43,9 +44,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.celery
-    command: celery -A tasks.celery_app worker --loglevel=debug
+    command: bash -c "/app/scripts/setup_dirs.sh && celery -A tasks.celery_app worker --loglevel=debug"
     volumes:
       - .:/app
+      - ./data:/app/data
     environment:
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_KEY=${SUPABASE_KEY}
