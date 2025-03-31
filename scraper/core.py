@@ -87,6 +87,7 @@ class CragScraper:
     async def login(self, async_session: aiohttp.ClientSession = None) -> bool:
         """
         Login to 27crags.com using credentials from environment variables.
+        Uses standard login first, initializes Playwright if needed.
 
         Args:
             async_session (aiohttp.ClientSession, optional): Active session
@@ -94,42 +95,67 @@ class CragScraper:
         Returns:
             bool: True if login successful, False otherwise
         """
-        # Use Playwright login if Playwright session is initialized
+        # Get credentials from environment
+        username = os.environ.get("CRAGS_USERNAME")
+        password = os.environ.get("CRAGS_PASSWORD")
+
+        if not username or not password:
+            logger.error("Missing login credentials in environment variables")
+            return False
+
+        # If we have a session, try standard login first
+        if async_session:
+            logger.info("Attempting standard login")
+            login_success = await standard_login(self.domain, self.headers,
+                                                 async_session,
+                                                 self._rate_limit)
+
+            if login_success:
+                logger.info("Standard login successful")
+
+                # Initialize Playwright if needed but don't use for login
+                if USE_PLAYWRIGHT and self.playwright_session:
+                    if not self.playwright_session.is_initialized:
+                        await self.playwright_session.initialize(self.headers)
+
+                        # Transfer cookies to Playwright session
+                        cookies = await self._extract_session_cookies(
+                            async_session)
+                        if cookies:
+                            await self.playwright_session.context.add_cookies(
+                                cookies)
+                            logger.info("Transferred cookies to Playwright")
+
+                return True
+            else:
+                logger.warning("Standard login failed")
+
+        # Try Playwright login as fallback
         if USE_PLAYWRIGHT and self.playwright_session:
-            logger.info("Using Playwright for login")
-            # Initialize Playwright session if not already done
+            logger.info("Attempting Playwright login")
+
             if not self.playwright_session.is_initialized:
                 await self.playwright_session.initialize(self.headers)
 
-            # Get credentials
-            username = os.environ.get("CRAGS_USERNAME")
-            password = os.environ.get("CRAGS_PASSWORD")
-
-            # Login selectors
+            credentials = {"username": username, "password": password}
             login_selectors = {
                 "username_field": 'input[name="web_user[username]"]',
                 "password_field": 'input[name="web_user[password]"]',
                 "submit_button": 'input[type="submit"]',
-                "success_indicator": 'body.user-logged',
-                "failure_indicator": 'a[href="/login"]'
+                "success_indicator": 'body.user-logged'
             }
 
-            # Credentials dictionary
-            credentials = {"username": username, "password": password}
+            playwright_login = await self.playwright_session.login(
+                self.login_url, credentials, login_selectors)
 
-            # Perform login with Playwright session
-            return await self.playwright_session.login(self.login_url,
-                                                       credentials,
-                                                       login_selectors)
+            if playwright_login:
+                logger.info("Playwright login successful")
+                return True
+            else:
+                logger.error("Playwright login failed")
 
-        # Fall back to standard login if async_session is provided
-        elif async_session:
-            logger.info("Using standard login")
-            return await standard_login(self.domain, self.headers,
-                                        async_session, self._rate_limit)
-        else:
-            logger.error("No session provided for login")
-            return False
+        logger.error("All login methods failed")
+        return False
 
     def requires_authentication(self, soup: BeautifulSoup) -> bool:
         """
@@ -146,7 +172,8 @@ class CragScraper:
     async def get_html(self, url: str,
                        async_session: aiohttp.ClientSession) -> BeautifulSoup:
         """
-        Async version of get_html with retry logic and authentication handling.
+        Get HTML content, using Playwright only
+        when JavaScript rendering is needed.
 
         Args:
             url (str): URL to fetch
@@ -154,10 +181,61 @@ class CragScraper:
 
         Returns:
             BeautifulSoup: Parsed HTML content
-
-        Raises:
-            Exception: If request fails after max retries
         """
+        # Determine if this URL needs JavaScript rendering
+        needs_js = any([
+            '/premiumtopos/' in url,  # Premium topos with SVG routes need JS
+            'strong_line' in url,  # Pages with route lines need JS
+            '/topo/' in url  # Topo pages need JS
+        ])
+
+        # Use Playwright for JavaScript-heavy pages
+        if needs_js and USE_PLAYWRIGHT and self.playwright_session:
+            try:
+                # Ensure Playwright is initialized
+                if not self.playwright_session.is_initialized:
+                    await self.playwright_session.initialize(self.headers)
+                    # Transfer cookies from standard session
+                    cookies = await self._extract_session_cookies(async_session
+                                                                  )
+                    if cookies:
+                        await self.playwright_session.context.add_cookies(
+                            cookies)
+
+                # Get content using Playwright
+                logger.debug(
+                    f"Using Playwright for JavaScript rendering: {url}")
+                content = await self.playwright_session.get_content(
+                    url,
+                    wait_for_selector=(
+                        '.topo-image, .topo-image-container, script.js-data'),
+                    wait_timeout=15000)
+                soup = BeautifulSoup(content, 'html5lib')
+
+                # Handle authentication if needed
+                if self.requires_authentication(soup):
+                    logger.warning("Page requires authentication despite "
+                                   f"using Playwright: {url}")
+                    if await self.login(async_session):
+                        logger.info(
+                            "Successfully re-authenticated, retrying request")
+                        # Transfer cookies again and retry
+                        cookies = await self._extract_session_cookies(
+                            async_session)
+                        await self.playwright_session.context.add_cookies(
+                            cookies)
+                        content = await self.playwright_session.get_content(url
+                                                                            )
+                        soup = BeautifulSoup(content, 'html5lib')
+
+                return soup
+
+            except Exception as e:
+                logger.error(f"Playwright request failed: {str(e)}")
+                logger.info("Falling back to standard request")
+                # Fall through to standard request
+
+        # Standard request for everything else
         for attempt in range(self.max_retries):
             try:
                 await self._rate_limit()
@@ -228,7 +306,7 @@ class CragScraper:
         Returns:
             Crag: A Crag object containing all scraped data
         """
-        # Initialize skipped_boulders here
+        # Initialize skipped_boulders list
         skipped_boulders = []
         # Track start time for elapsed time calculation
         start_time = time.time()
@@ -236,16 +314,14 @@ class CragScraper:
         async with aiohttp.ClientSession(
                 headers=self.headers) as async_session:
             try:
-                # Initialize Playwright session if we're using it
-                if USE_PLAYWRIGHT and self.playwright_session:
-                    await self.playwright_session.initialize(self.headers)
-
+                # Initial login
                 login_result = await self.login(async_session)
                 logger.info("Initial login "
                             f"{'successful' if login_result else 'failed'}")
-
-                # Continue with the rest of the scraping process
-                # get_html will handle authentication challenges automatically
+                if not login_result:
+                    logger.error(
+                        "Failed to login, cannot proceed with scraping")
+                    return {"success": False, "error": "Authentication failed"}
 
                 # Get crag route list
                 route_list_url = urljoin(self.crag_url + "/", "routelist")
@@ -319,17 +395,20 @@ class CragScraper:
                             'in_progress'
                         })
 
-                # Close the Playwright session if we used it
-                if USE_PLAYWRIGHT and self.playwright_session:
+                # Cleanup Playwright session if it was used
+                if (USE_PLAYWRIGHT and self.playwright_session
+                        and self.playwright_session.is_initialized):
+                    logger.info("Closing Playwright session")
                     await self.playwright_session.close()
 
                 # Create and return Crag object
                 return Crag(name=self.crag_name, boulders=boulders)
 
             except Exception as e:
-                # Make sure to close the Playwright session
-                # if an exception occurs
-                if USE_PLAYWRIGHT and self.playwright_session:
+                # Cleanup Playwright session if an exception occurs
+                if (USE_PLAYWRIGHT and self.playwright_session
+                        and self.playwright_session.is_initialized):
+                    logger.info("Closing Playwright session due to exception")
                     await self.playwright_session.close()
 
                 logger.error(f"Error scraping crag: {str(e)}")
@@ -379,38 +458,10 @@ class CragScraper:
             logger.debug(f"Fetching premium topo page for boulder "
                          f"'{boulder_name}': {premium_topo_url}")
 
-            # Use Playwright for JavaScript rendering if enabled
-            if USE_PLAYWRIGHT and self.playwright_session:
-                logger.info(f"Using Playwright to render premium topo page "
-                            f"for boulder '{boulder_name}'")
-
-                try:
-                    # Make sure the session is initialized
-                    if not self.playwright_session.is_initialized:
-                        await self.playwright_session.initialize(self.headers)
-                        await self.login()
-
-                    # Get content using the persistent session
-                    html_content = await self.playwright_session.get_content(
-                        premium_topo_url,
-                        wait_for_selector='.topo-image, .topo-image-container',
-                        wait_timeout=15000)
-
-                    boulder_premium_page = BeautifulSoup(
-                        html_content, 'html5lib')
-                    logger.debug(
-                        "Successfully rendered premium topo page with "
-                        "Playwright")
-                except Exception as e:
-                    logger.error(
-                        f"Error using Playwright for {premium_topo_url}: "
-                        f"{str(e)}")
-                    logger.warning("Falling back to standard HTTP request")
-                    boulder_premium_page = await self.get_html(
-                        premium_topo_url, async_session)
-            else:
-                boulder_premium_page = await self.get_html(
-                    premium_topo_url, async_session)
+            # Premium topo pages always require JavaScript to render properly
+            # They contain SVG elements and dynamic scripts
+            boulder_premium_page = await self.get_html(premium_topo_url,
+                                                       async_session)
 
             # Log the found topo images
             img_divs = boulder_premium_page.find_all('div',
@@ -418,7 +469,7 @@ class CragScraper:
             logger.debug(f"Found {len(img_divs)} topo images for boulder "
                          f"'{boulder_name}'")
 
-            # Process each photo with detailed logging
+            # Process each photo
             boulder_photos = []
             for idx, img_div in enumerate(img_divs):
                 try:
@@ -430,56 +481,14 @@ class CragScraper:
 
                     # Generate a unique photo ID
                     photo_id = f"{hash(img_url)}_{idx}"
-                    logger.debug(f"Generated photo ID: {photo_id}")
 
-                    # Try to extract lines data
-                    lines_element = img_div.find('script', class_='js-data')
-                    lines_data = {}
-
-                    if lines_element:
-                        # If we're using Playwright,
-                        # we need to access the inner text directly
-                        if USE_PLAYWRIGHT:
-                            lines_text = (lines_element.string
-                                          if lines_element.string else "")
-                        else:
-                            lines_text = lines_element.text.strip()
-
-                        logger.debug(
-                            f"Found script element for photo {photo_id}, "
-                            f"content length: {len(lines_text)}")
-
-                        if lines_text:
-                            try:
-                                lines_data = json.loads(lines_text)
-                                logger.debug(
-                                    f"Found lines data for photo {photo_id}: "
-                                    f"keys={', '.join(lines_data.keys())}")
-
-                                # Log the number of line paths
-                                if 'lines' in lines_data:
-                                    logger.debug(f"Photo {photo_id} has "
-                                                 f"{len(lines_data['lines'])} "
-                                                 f"line paths")
-                            except json.JSONDecodeError as je:
-                                logger.error(
-                                    f"Failed to parse lines data JSON for "
-                                    f"photo {photo_id}: {str(je)}")
-                                logger.debug(
-                                    f"Raw script content (first 200 chars): "
-                                    f"{lines_text[:200]}...")
-                        else:
-                            logger.warning(
-                                f"Empty lines data for photo {photo_id}")
-                    else:
-                        logger.warning(
-                            f"No lines data element found for photo {photo_id}"
-                        )
+                    # Extract lines data from JavaScript elements
+                    lines_data = self._extract_lines_data(img_div, photo_id)
 
                     # Always create and add the photo, even without lines data
                     photo = BoulderPhoto(id=photo_id,
                                          url=img_url,
-                                         lines_data=lines_data)
+                                         lines_data=lines_data or {})
                     boulder_photos.append(photo)
                     logger.debug(
                         f"Added photo {photo_id} to boulder '{boulder_name}'")
@@ -699,61 +708,119 @@ class CragScraper:
         """
         Extract route line data from a topo image.
 
-        Note: This is a regular method (not async) to avoid coroutine issues.
-
         Args:
-            topo_image: The HTML div containing the topo image
-            matching_photo: Matching BoulderPhoto object from boulder photos
+            img_div: The HTML div containing the topo image
+            matching_photo: Matching BoulderPhoto object
             route_name: Name of the route for logging
 
         Returns:
             RouteLineData object if successful, None otherwise
         """
-        lines_element = img_div.find('script', class_='js-data')
-        if not lines_element:
-            logger.warning(
-                f"No script data found for route '{route_name}' topo image")
+        # First extract all lines data
+        lines_data = self._extract_lines_data(img_div, matching_photo.id)
+
+        # Check specifically for strong_line which highlights this route
+        if not lines_data:
             return None
 
-        try:
-            lines_text = lines_element.text.strip()
-            if not lines_text:
-                logger.warning(
-                    f"Empty script data for route '{route_name}' topo image")
-                return None
+        if 'strong_line' in lines_data:
+            # Create a RouteLineData object with the strong_line data
+            line_data = RouteLineData(photo_id=matching_photo.id,
+                                      line_points=lines_data['strong_line'])
+            logger.debug(
+                f"Found strong line for route '{route_name}' in photo "
+                f"{matching_photo.id}")
+            return line_data
+        else:
+            # It's normal for some route photos not to have a strong_line
+            # if they're showing multiple routes
+            logger.info(
+                f"No strong line found for route '{route_name}' in photo "
+                f"{matching_photo.id} - this may be a multi-route topo")
+            return None
 
+    async def _extract_session_cookies(
+            self, session: aiohttp.ClientSession) -> List[Dict]:
+        """Extract cookies from aiohttp session for use with Playwright."""
+        try:
+            cookie_jar = session.cookie_jar
+            cookies = []
+
+            for cookie in cookie_jar:
+                # Convert from aiohttp cookie format to Playwright format
+                playwright_cookie = {
+                    'name':
+                    cookie.key,
+                    'value':
+                    cookie.value,
+                    'domain':
+                    cookie.domain if cookie.domain else self.domain.replace(
+                        'https://', ''),
+                    'path':
+                    cookie.path if cookie.path else '/',
+                    'secure':
+                    cookie.secure,
+                    'httpOnly':
+                    False,  # Default since we can't determine from aiohttp
+                    'sameSite':
+                    'Lax'  # Default value
+                }
+                cookies.append(playwright_cookie)
+
+            logger.debug(f"Extracted {len(cookies)} cookies from session")
+            return cookies
+        except Exception as e:
+            logger.error(f"Failed to extract cookies: {str(e)}")
+            return []
+
+    def _extract_lines_data(self, img_div, photo_id):
+        """
+        Extract lines data from topo image JavaScript.
+
+        Args:
+            img_div: HTML div containing the topo image
+            photo_id: Generated photo ID for logging
+
+        Returns:
+            dict: Parsed lines data or empty dict if not found
+        """
+        lines_element = img_div.find('script', class_='js-data')
+        if not lines_element:
+            logger.warning(f"No lines data element found for photo {photo_id}")
+            return {}
+
+        # Extract text content based on browser rendering method
+        if USE_PLAYWRIGHT:
+            # Playwright might store content differently
+            lines_text = lines_element.string if lines_element.string else ""
+        else:
+            lines_text = lines_element.text.strip()
+
+        if not lines_text:
+            logger.warning(f"Empty lines data for photo {photo_id}")
+            return {}
+
+        # Try to parse JSON data
+        try:
             lines_data = json.loads(lines_text)
 
-            # For routes, we specifically want the "strong_line" which
-            # highlights this route
-            logger.debug(f"Line data structure for route '{route_name}'")
-            logger.debug(f"- Has strong line: {'strong_line' in lines_data}")
+            # Log successful extraction
+            logger.debug(f"Extracted lines data for photo {photo_id}: "
+                         f"keys={', '.join(lines_data.keys())}")
 
-            if 'strong_line' in lines_data:
-                # Create a RouteLineData object with the strong_line data
-                line_data = RouteLineData(
-                    photo_id=matching_photo.id,
-                    line_points=lines_data['strong_line'])
+            # Log line paths if present
+            if 'lines' in lines_data:
                 logger.debug(
-                    f"Successfully extracted strong line data for photo "
-                    f"{matching_photo.id} for route '{route_name}'")
-                return line_data
-            else:
-                # It's normal for some route photos not to have a strong_line
-                # if they're showing multiple routes
-                logger.info(
-                    f"No strong line found for route '{route_name}' in photo "
-                    f"{matching_photo.id} - this may be a multi-route topo")
-                return None
+                    f"Photo {photo_id} has {len(lines_data['lines'])} "
+                    "line paths")
+
+            return lines_data
 
         except json.JSONDecodeError as je:
             logger.error(
-                f"Failed to parse line data JSON for route '{route_name}': "
+                f"Failed to parse lines data JSON for photo {photo_id}: "
                 f"{str(je)}")
-            if lines_element.text.strip():
+            if lines_text:
                 logger.debug(
-                    f"Raw line data: {lines_element.text.strip()[:200]}...")
-            else:
-                logger.warning(
-                    f"Line data is empty string for route '{route_name}'")
-            return None
+                    f"Raw content (first 200 chars): {lines_text[:200]}...")
+            return {}

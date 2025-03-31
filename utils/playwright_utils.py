@@ -5,6 +5,11 @@ websites.
 """
 from typing import Dict, Tuple, Any
 from playwright.async_api import async_playwright, Page, Browser
+import os
+import asyncio
+import random
+import datetime
+import json
 
 from utils.loggers import logger
 
@@ -146,13 +151,43 @@ class PlaywrightSession:
             return
 
         self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.chromium.launch()
 
-        # Create a persistent context
-        self.context = await self.browser.new_context(viewport={
-            'width': 1280,
-            'height': 800
-        })
+        # Add user data directory for persistent storage
+        user_data_dir = "/tmp/playwright_user_data"
+        os.makedirs(user_data_dir, exist_ok=True)
+
+        # Implement user agent rotation
+        user_agents = []
+        for i in range(1, 6):  # Check for USER_AGENT_1 through USER_AGENT_5
+            agent = os.environ.get(f"USER_AGENT_{i}")
+            if agent:
+                user_agents.append(agent)
+
+        # Select a random user agent or use a default if none are defined
+        user_agent = random.choice(user_agents) if user_agents else (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+
+        logger.debug(f"Using user agent: {user_agent}")
+
+        # Slight variations in viewport size
+        width = 1280 + random.randint(-20, 20)
+        height = 800 + random.randint(-10, 10)
+
+        # Launch with persistent context
+        self.browser = await self.playwright.chromium.launch()
+        self.context = await self.browser.new_context(
+            viewport={
+                'width': width,
+                'height': height
+            },
+            user_agent=user_agent,
+            locale="en-US",
+            timezone_id="Europe/London",
+            color_scheme="light",
+            storage_state=os.path.join(
+                user_data_dir, "storage.json") if os.path.exists(
+                    os.path.join(user_data_dir, "storage.json")) else None)
 
         # Add default headers if provided
         if headers:
@@ -161,6 +196,24 @@ class PlaywrightSession:
         # Create a default page
         self.page = await self.context.new_page()
         self.is_initialized = True
+
+        # Save cookies and storage after successful initialization
+        async def save_storage():
+            state = await self.context.storage_state()
+            # Create timestamp-based storage files
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            storage_path = os.path.join(user_data_dir,
+                                        f"storage_{timestamp}.json")
+            # Save to both the timestamped and the standard file
+            with open(storage_path, 'w') as f:
+                f.write(json.dumps(state))
+            await self.context.storage_state(
+                path=os.path.join(user_data_dir, "storage.json"))
+
+        # Set up event listener to save storage on successful authentication
+        self.context.on("page",
+                        lambda page: asyncio.create_task(save_storage()))
+
         logger.debug("PlaywrightSession initialized successfully")
 
     async def login(self, login_url: str, credentials: Dict[str, str],
@@ -185,6 +238,30 @@ class PlaywrightSession:
         try:
             # Navigate to login page
             await self.page.goto(login_url)
+
+            # Wait for page to fully load - add this
+            await self.page.wait_for_load_state('networkidle')
+
+            # Check if we're already logged in
+            already_logged = await self.page.query_selector('body.user-logged')
+            if already_logged:
+                logger.info("Already logged in, no need to re-authenticate")
+                return True
+
+            # Wait for the login form to be available - add this
+            try:
+                await self.page.wait_for_selector(selectors['username_field'],
+                                                  timeout=5000)
+            except Exception as e:
+                logger.warning(f"Could not find username field: {str(e)}")
+                # Try to locate any username field as fallback
+                username_fields = await self.page.query_selector_all(
+                    'input[type="text"]')
+                if not username_fields:
+                    logger.error("No text input fields found on login page")
+                    # Take a screenshot for debugging
+                    await self.page.screenshot(path="/app/login_error.png")
+                    return False
 
             # Fill username and password
             if 'username_field' in selectors and 'username' in credentials:
