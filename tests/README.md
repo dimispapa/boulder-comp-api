@@ -76,7 +76,8 @@ The test suite uses several mocking strategies:
 ## Debug Files
 
 For scraper tests, test runs create debug HTML files in the `tests/scraper/debug/` 
-directory that capture the state of pages during test execution.
+directory that capture the state of pages during test execution. This directory
+is excluded from version control (.gitignore) and Docker builds (.dockerignore).
 
 ## File Organization
 

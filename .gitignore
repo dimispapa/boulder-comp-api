@@ -47,3 +47,6 @@ celerybeat-schedule
 
 # Project data files
 data/scraped/*.json
+
+# Test debug files
+tests/scraper/debug/
