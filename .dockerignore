@@ -67,7 +67,7 @@ tests/
 test_*.py 
 
 # Project data files
-data/scraped/*.json
+data/
 
 # Test debug files
 tests/scraper/debug/ 
