@@ -27,8 +27,6 @@ celery_app.conf.update(
     broker_connection_retry_on_startup=True,
     task_publish_retry=True,
     worker_log_color=True,
-    worker_redirect_stdouts=True,
-    worker_redirect_stdouts_level='INFO',
 )
 
 # Auto-discover tasks in the 'tasks' directory

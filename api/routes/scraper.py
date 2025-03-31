@@ -3,12 +3,11 @@ FastAPI router for the scraping endpoints.
 """
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 import os
-from urllib.parse import urljoin
 from dotenv import load_dotenv
 import traceback
 from pathlib import Path
 from datetime import datetime
-
+from typing import Dict, Any
 from utils.loggers import logger
 from tasks.scraper_tasks import scrape_crag_task, store_crag_data_task
 from utils.task_status import (get_task_instance, prepare_basic_result,
@@ -25,7 +24,7 @@ router = APIRouter()
 
 @router.post("/start")
 async def start_scraping(background_tasks: BackgroundTasks,
-                         crag_name: str = "inia-droushia"):
+                         crag_name: str = "inia-droushia") -> Dict[str, Any]:
     """
     Start scraping a crag from 27crags.com.
 
@@ -37,11 +36,10 @@ async def start_scraping(background_tasks: BackgroundTasks,
         dict: Status of the scraping task
     """
     try:
-        crag_url = urljoin(BASE_URL, crag_name)
-        logger.debug(f"API route started scraping crag: {crag_url}")
+        logger.debug(f"API route started scraping crag: {crag_name}")
 
         # Use the proper registered task with the selected user agent
-        task = scrape_crag_task.delay(crag_url)
+        task = scrape_crag_task.delay(crag_name)
 
         return {
             "status": "success",
@@ -57,7 +55,7 @@ async def start_scraping(background_tasks: BackgroundTasks,
 @router.post("/store")
 async def start_storage(background_tasks: BackgroundTasks,
                         file_path: str = None,
-                        crag_name: str = None):
+                        crag_name: str = "inia-droushia") -> Dict[str, Any]:
     """
     Start storing previously scraped crag data to the database.
 
@@ -67,6 +65,7 @@ async def start_storage(background_tasks: BackgroundTasks,
         the given crag name.
         crag_name (str, optional): Name of the crag to find the most
         recent file for. Only used if file_path is not provided.
+        Defaults to 'inia-droushia'.
 
     Returns:
         dict: Status of the storage task
@@ -120,13 +119,14 @@ async def start_storage(background_tasks: BackgroundTasks,
 
 
 @router.get("/list-files")
-async def list_scraped_files(crag_name: str = None):
+async def list_scraped_files(
+        crag_name: str = "inia-droushia") -> Dict[str, Any]:
     """
     List all scraped data files, optionally filtered by crag name.
 
     Args:
         crag_name (str, optional): Filter files for a specific crag
-
+        Defaults to 'inia-droushia'.
     Returns:
         dict: List of available scraped data files
     """

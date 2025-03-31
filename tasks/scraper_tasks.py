@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 from datetime import datetime
 
-from scraper.models import Crag, Boulder, Route
+from scraper.models import Crag, Boulder, Route, BoulderPhoto, RouteLineData
 from utils.supabase import get_admin_supabase_client, store_crag_data
 from utils.loggers import logger
 
@@ -40,13 +40,13 @@ SCRAPED_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
 @celery_app.task(bind=True, name='tasks.scraper_tasks.scrape_crag_task')
-def scrape_crag_task(self, crag_url: str):
+def scrape_crag_task(self, crag_name: str):
     """
     Celery task to scrape data from a 27crags crag page and
     save to a JSON file.
 
     Args:
-        crag_url (str): URL of the crag to scrape
+        crag_name (str): Name of the crag to scrape
 
     Returns:
         dict: Status and result of the scraping operation
@@ -60,7 +60,7 @@ def scrape_crag_task(self, crag_url: str):
         headers = {'User-Agent': selected_user_agent}
 
         # Initialize scraper with the selected user agent
-        scraper = CragScraper(headers, supabase)
+        scraper = CragScraper(headers, supabase, crag_name)
 
         # Handle login synchronously
         username = os.getenv("CRAGS_USERNAME")
@@ -87,7 +87,7 @@ def scrape_crag_task(self, crag_url: str):
 
         # Run the async scraping with progress updates
         crag_data = loop.run_until_complete(
-            scraper.scrape_crag(crag_url, progress_callback=update_progress))
+            scraper.scrape_crag(progress_callback=update_progress))
 
         # Clean up the loop
         loop.close()
@@ -143,7 +143,7 @@ def scrape_crag_task(self, crag_url: str):
             "status": "error",
             "detail": str(e),
             "traceback": traceback.format_exc(),
-            "crag_url": crag_url
+            "crag_name": crag_name
         }
 
 
@@ -178,6 +178,17 @@ def save_crag_to_json(crag: Crag, file_path: Path) -> dict:
                 "detail": f"No write permission for directory: {dir_path}"
             }
 
+        # Add debug logging for photo data
+        total_photos = sum(len(boulder.photos) for boulder in crag.boulders)
+        total_lines = sum(
+            len(route.line_data) for boulder in crag.boulders
+            for route in boulder.routes)
+
+        logger.info("Preparing to save crag data:")
+        logger.info(f"- Total boulders: {len(crag.boulders)}")
+        logger.info(f"- Total photos: {total_photos}")
+        logger.info(f"- Total route lines: {total_lines}")
+
         # Convert Crag object to a serializable dictionary
         crag_dict = {
             "name":
@@ -191,15 +202,38 @@ def save_crag_to_json(crag: Crag, file_path: Path) -> dict:
                 boulder.gps_postgis,
                 "gps_string":
                 boulder.gps_string,
+                "photos": [{
+                    "id": photo.id,
+                    "url": photo.url,
+                    "lines_data": photo.lines_data
+                } for photo in boulder.photos],
                 "routes": [{
-                    "name": route.name,
-                    "url": route.url,
-                    "grade": route.grade,
-                    "rating": route.rating,
-                    "description": route.description
+                    "name":
+                    route.name,
+                    "url":
+                    route.url,
+                    "grade":
+                    route.grade,
+                    "rating":
+                    route.rating,
+                    "description":
+                    route.description,
+                    "line_data": [{
+                        "photo_id": line.photo_id,
+                        "line_points": line.line_points
+                    } for line in route.line_data]
                 } for route in boulder.routes]
             } for boulder in crag.boulders]
         }
+
+        # Log sample of the data structure
+        if crag.boulders:
+            sample_boulder = crag.boulders[0]
+            if sample_boulder.photos:
+                logger.debug("Sample photo data structure:")
+                logger.debug(
+                    json.dumps(crag_dict["boulders"][0]["photos"][0],
+                               indent=2))
 
         # Log file details before writing
         logger.info(
@@ -288,22 +322,42 @@ def load_crag_from_json(file_path: str) -> Crag:
         # Recreate Boulder and Route objects
         boulders = []
         for boulder_dict in crag_dict["boulders"]:
-            # Create Route objects
-            routes = [
-                Route(name=route_dict["name"],
-                      url=route_dict["url"],
-                      grade=route_dict["grade"],
-                      rating=route_dict["rating"],
-                      description=route_dict["description"])
-                for route_dict in boulder_dict["routes"]
-            ]
+            # Create BoulderPhoto objects
+            photos = []
+            if "photos" in boulder_dict:
+                photos = [
+                    BoulderPhoto(id=photo_dict["id"],
+                                 url=photo_dict["url"],
+                                 lines_data=photo_dict["lines_data"])
+                    for photo_dict in boulder_dict["photos"]
+                ]
 
-            # Create Boulder object with routes
+            # Create Route objects with line data
+            routes = []
+            for route_dict in boulder_dict["routes"]:
+                line_data = []
+                if "line_data" in route_dict:
+                    line_data = [
+                        RouteLineData(photo_id=line_dict["photo_id"],
+                                      line_points=line_dict["line_points"])
+                        for line_dict in route_dict["line_data"]
+                    ]
+
+                route = Route(name=route_dict["name"],
+                              url=route_dict["url"],
+                              grade=route_dict["grade"],
+                              rating=route_dict["rating"],
+                              description=route_dict["description"],
+                              line_data=line_data)
+                routes.append(route)
+
+            # Create Boulder object with routes and photos
             boulder = Boulder(name=boulder_dict["name"],
                               url=boulder_dict["url"],
                               gps_postgis=boulder_dict["gps_postgis"],
                               gps_string=boulder_dict["gps_string"],
-                              routes=routes)
+                              routes=routes,
+                              photos=photos)
             boulders.append(boulder)
 
         # Create and return Crag object

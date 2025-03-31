@@ -95,11 +95,15 @@ CREATE TABLE boulder_photos (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     boulder_id UUID NOT NULL REFERENCES boulders(id) ON DELETE CASCADE,
     url TEXT NOT NULL,
-    caption TEXT,
-    "order" INTEGER NOT NULL DEFAULT 0,
+    photo_id TEXT NOT NULL,
+    storage_url TEXT,
+    lines_data JSONB,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(boulder_id, photo_id)
 );
+-- Add comment for documentation
+COMMENT ON COLUMN boulder_photos.storage_url IS 'URL of the photo in Supabase Storage, populated after successful upload';
 
 -- Create routes table
 CREATE TABLE routes (
@@ -110,6 +114,7 @@ CREATE TABLE routes (
     grade TEXT NOT NULL,
     rating FLOAT,
     description TEXT,
+    line_data JSONB,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -238,6 +243,7 @@ CREATE TABLE boulder_beasts_rankings (
 CREATE INDEX idx_sectors_name ON sectors(name);
 CREATE INDEX idx_boulders_sector_id ON boulders(sector_id);
 CREATE INDEX idx_boulder_photos_boulder_id ON boulder_photos(boulder_id);
+CREATE INDEX idx_boulder_photos_storage_url ON boulder_photos(storage_url);
 CREATE INDEX idx_routes_boulder_id ON routes(boulder_id);
 CREATE INDEX idx_teams_competition_id ON teams(competition_id);
 CREATE INDEX idx_participants_competition_id ON participants(competition_id);
