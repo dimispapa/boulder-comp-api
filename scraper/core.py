@@ -18,10 +18,14 @@ import random
 from utils.general_utils import normalize_url
 from utils.loggers import logger
 from .models import Crag, Boulder, Route, BoulderPhoto, RouteLineData
-from utils.auth_utils import perform_login, check_requires_authentication
+from utils.auth_utils import check_requires_authentication, standard_login
+from utils.playwright_utils import PlaywrightSession
 
 # Load environment variables
 load_dotenv()
+
+# Flag to determine if we should use Playwright for JavaScript rendering
+USE_PLAYWRIGHT = os.getenv("USE_PLAYWRIGHT", "true").lower() == "true"
 
 
 class CragScraper:
@@ -56,6 +60,12 @@ class CragScraper:
             os.getenv("MIN_REQUEST_INTERVAL", "1.7"))
         self.max_retries = int(os.getenv("MAX_RETRIES", "3"))
         self.retry_delay = int(os.getenv("RETRY_DELAY", "5"))
+
+        # Initialize Playwright session if needed
+        self.playwright_session = None
+        if USE_PLAYWRIGHT:
+            self.playwright_session = PlaywrightSession()
+
         # Add lock for rate limiting
         self._rate_limit_lock = asyncio.Lock()
 
@@ -84,8 +94,42 @@ class CragScraper:
         Returns:
             bool: True if login successful, False otherwise
         """
-        return await perform_login(self.domain, self.headers, async_session,
-                                   self._rate_limit)
+        # Use Playwright login if Playwright session is initialized
+        if USE_PLAYWRIGHT and self.playwright_session:
+            logger.info("Using Playwright for login")
+            # Initialize Playwright session if not already done
+            if not self.playwright_session.is_initialized:
+                await self.playwright_session.initialize(self.headers)
+
+            # Get credentials
+            username = os.environ.get("CRAGS_USERNAME")
+            password = os.environ.get("CRAGS_PASSWORD")
+
+            # Login selectors
+            login_selectors = {
+                "username_field": 'input[name="web_user[username]"]',
+                "password_field": 'input[name="web_user[password]"]',
+                "submit_button": 'input[type="submit"]',
+                "success_indicator": 'body.user-logged',
+                "failure_indicator": 'a[href="/login"]'
+            }
+
+            # Credentials dictionary
+            credentials = {"username": username, "password": password}
+
+            # Perform login with Playwright session
+            return await self.playwright_session.login(self.login_url,
+                                                       credentials,
+                                                       login_selectors)
+
+        # Fall back to standard login if async_session is provided
+        elif async_session:
+            logger.info("Using standard login")
+            return await standard_login(self.domain, self.headers,
+                                        async_session, self._rate_limit)
+        else:
+            logger.error("No session provided for login")
+            return False
 
     def requires_authentication(self, soup: BeautifulSoup) -> bool:
         """
@@ -192,6 +236,9 @@ class CragScraper:
         async with aiohttp.ClientSession(
                 headers=self.headers) as async_session:
             try:
+                # Initialize Playwright session if we're using it
+                if USE_PLAYWRIGHT and self.playwright_session:
+                    await self.playwright_session.initialize(self.headers)
 
                 login_result = await self.login(async_session)
                 logger.info("Initial login "
@@ -272,10 +319,19 @@ class CragScraper:
                             'in_progress'
                         })
 
+                # Close the Playwright session if we used it
+                if USE_PLAYWRIGHT and self.playwright_session:
+                    await self.playwright_session.close()
+
                 # Create and return Crag object
                 return Crag(name=self.crag_name, boulders=boulders)
 
             except Exception as e:
+                # Make sure to close the Playwright session
+                # if an exception occurs
+                if USE_PLAYWRIGHT and self.playwright_session:
+                    await self.playwright_session.close()
+
                 logger.error(f"Error scraping crag: {str(e)}")
                 return {"success": False, "skipped_boulders": skipped_boulders}
 
@@ -322,8 +378,39 @@ class CragScraper:
                                        f"premiumtopos/{boulder_url_name}")
             logger.debug(f"Fetching premium topo page for boulder "
                          f"'{boulder_name}': {premium_topo_url}")
-            boulder_premium_page = await self.get_html(premium_topo_url,
-                                                       async_session)
+
+            # Use Playwright for JavaScript rendering if enabled
+            if USE_PLAYWRIGHT and self.playwright_session:
+                logger.info(f"Using Playwright to render premium topo page "
+                            f"for boulder '{boulder_name}'")
+
+                try:
+                    # Make sure the session is initialized
+                    if not self.playwright_session.is_initialized:
+                        await self.playwright_session.initialize(self.headers)
+                        await self.login()
+
+                    # Get content using the persistent session
+                    html_content = await self.playwright_session.get_content(
+                        premium_topo_url,
+                        wait_for_selector='.topo-image, .topo-image-container',
+                        wait_timeout=15000)
+
+                    boulder_premium_page = BeautifulSoup(
+                        html_content, 'html5lib')
+                    logger.debug(
+                        "Successfully rendered premium topo page with "
+                        "Playwright")
+                except Exception as e:
+                    logger.error(
+                        f"Error using Playwright for {premium_topo_url}: "
+                        f"{str(e)}")
+                    logger.warning("Falling back to standard HTTP request")
+                    boulder_premium_page = await self.get_html(
+                        premium_topo_url, async_session)
+            else:
+                boulder_premium_page = await self.get_html(
+                    premium_topo_url, async_session)
 
             # Log the found topo images
             img_divs = boulder_premium_page.find_all('div',
@@ -331,10 +418,8 @@ class CragScraper:
             logger.debug(f"Found {len(img_divs)} topo images for boulder "
                          f"'{boulder_name}'")
 
-            # Create a list to store boulder photos
-            boulder_photos = []
-
             # Process each photo with detailed logging
+            boulder_photos = []
             for idx, img_div in enumerate(img_divs):
                 try:
                     # Get the image URL
@@ -347,44 +432,66 @@ class CragScraper:
                     photo_id = f"{hash(img_url)}_{idx}"
                     logger.debug(f"Generated photo ID: {photo_id}")
 
-                    # Get the lines data with detailed logging
+                    # Try to extract lines data
                     lines_element = img_div.find('script', class_='js-data')
+                    lines_data = {}
+
                     if lines_element:
-                        try:
-                            lines_data = json.loads(lines_element.text.strip())
-                            logger.debug(
-                                f"Found lines data for photo {photo_id}:")
-                            logger.debug(f"- Number of lines: "
-                                         f"{len(lines_data.get('lines', []))}")
-                            logger.debug(f"- Has strong line: "
-                                         f"{'strong_line' in lines_data}")
+                        # If we're using Playwright,
+                        # we need to access the inner text directly
+                        if USE_PLAYWRIGHT:
+                            lines_text = (lines_element.string
+                                          if lines_element.string else "")
+                        else:
+                            lines_text = lines_element.text.strip()
 
-                            # Create a BoulderPhoto object
-                            photo = BoulderPhoto(id=photo_id,
-                                                 url=img_url,
-                                                 lines_data=lines_data)
+                        logger.debug(
+                            f"Found script element for photo {photo_id}, "
+                            f"content length: {len(lines_text)}")
 
-                            boulder_photos.append(photo)
-                            logger.debug(
-                                f"Successfully added photo {photo_id} to "
-                                f"boulder '{boulder_name}'")
-                        except json.JSONDecodeError as je:
-                            logger.error(
-                                f"Failed to parse lines data JSON for photo"
-                                f" {photo_id}: {str(je)}")
-                            logger.debug(
-                                "Raw lines data: "
-                                f"{lines_element.text.strip()[:100]}...")
+                        if lines_text:
+                            try:
+                                lines_data = json.loads(lines_text)
+                                logger.debug(
+                                    f"Found lines data for photo {photo_id}: "
+                                    f"keys={', '.join(lines_data.keys())}")
+
+                                # Log the number of line paths
+                                if 'lines' in lines_data:
+                                    logger.debug(f"Photo {photo_id} has "
+                                                 f"{len(lines_data['lines'])} "
+                                                 f"line paths")
+                            except json.JSONDecodeError as je:
+                                logger.error(
+                                    f"Failed to parse lines data JSON for "
+                                    f"photo {photo_id}: {str(je)}")
+                                logger.debug(
+                                    f"Raw script content (first 200 chars): "
+                                    f"{lines_text[:200]}...")
+                        else:
+                            logger.warning(
+                                f"Empty lines data for photo {photo_id}")
                     else:
                         logger.warning(
-                            f"No lines data found for photo {photo_id}")
+                            f"No lines data element found for photo {photo_id}"
+                        )
+
+                    # Always create and add the photo, even without lines data
+                    photo = BoulderPhoto(id=photo_id,
+                                         url=img_url,
+                                         lines_data=lines_data)
+                    boulder_photos.append(photo)
+                    logger.debug(
+                        f"Added photo {photo_id} to boulder '{boulder_name}'")
+
                 except Exception as e:
                     logger.error(f"Error processing photo {idx} for boulder"
                                  f" '{boulder_name}': {str(e)}")
                     continue
 
-            logger.info(f"Successfully processed {len(boulder_photos)} photos "
-                        f"for boulder '{boulder_name}'")
+            logger.info(
+                f"Successfully processed {len(boulder_photos)} photos for "
+                f"boulder '{boulder_name}'")
 
             # Process routes in batches
             routes = []
@@ -413,6 +520,66 @@ class CragScraper:
 
         except Exception as e:
             logger.error(f"Error extracting boulder data: {str(e)}")
+            return None
+
+    def _get_boulder_lines(self, img_div, photo_id, img_url, boulder_name):
+        """
+        Extract lines data from boulder photo.
+
+        Note: This is a regular method (not async) to avoid coroutine issues.
+
+        Args:
+            img_div: The HTML div containing the topo image
+            photo_id: Generated ID for the photo
+            img_url: URL of the topo image
+            boulder_name: Name of the boulder for logging
+
+        Returns:
+            BoulderPhoto object if successful, None otherwise
+        """
+        lines_element = img_div.find('script', class_='js-data')
+        if not lines_element:
+            logger.warning(f"No lines data element found for photo {photo_id}")
+            return None
+
+        try:
+            lines_text = lines_element.text.strip()
+            if not lines_text:
+                logger.warning(f"Empty lines data for photo {photo_id}")
+                return None
+
+            lines_data = json.loads(lines_text)
+
+            # For boulder photos, we expect to have "lines"
+            # but not necessarily "strong_line"
+            if 'lines' in lines_data:
+                logger.debug(f"Found lines data for photo {photo_id}:")
+                logger.debug(f"- Number of lines: {len(lines_data['lines'])}")
+
+                # Create a BoulderPhoto object with all the lines data
+                photo = BoulderPhoto(id=photo_id,
+                                     url=img_url,
+                                     lines_data=lines_data)
+
+                logger.debug(
+                    f"Successfully extracted lines data for photo {photo_id} "
+                    f"with {len(lines_data['lines'])} lines for boulder "
+                    f"'{boulder_name}'")
+                return photo
+            else:
+                logger.warning(
+                    f"No 'lines' field found in data for photo {photo_id}")
+                return None
+
+        except json.JSONDecodeError as je:
+            logger.error("Failed to parse lines data JSON for photo "
+                         f"{photo_id}: {str(je)}")
+            if lines_element.text.strip():
+                logger.debug(
+                    f"Raw lines data: {lines_element.text.strip()[:200]}...")
+            else:
+                logger.warning(
+                    f"Lines data is empty string for photo {photo_id}")
             return None
 
     async def _extract_route_data(
@@ -471,18 +638,18 @@ class CragScraper:
 
             # Extract line data with detailed logging
             route_line_data = []
-            topo_images = route_page.find_all('div', class_='topo-image')
+            img_divs = route_page.find_all('div', class_='topo-image')
 
             logger.debug(f"Processing line data for route '{route_name}'")
-            logger.debug(f"Found {len(topo_images)} topo images for route")
+            logger.debug(f"Found {len(img_divs)} topo images for route")
 
-            if topo_images:
-                for idx, topo_image in enumerate(topo_images):
+            if img_divs:
+                for idx, img_div in enumerate(img_divs):
                     try:
                         # Get the image URL
-                        img_url = topo_image.find('img')['src']
+                        img_url = img_div.find('img')['src']
                         logger.debug(f"Processing topo image "
-                                     f"{idx + 1}/{len(topo_images)}: "
+                                     f"{idx + 1}/{len(img_divs)}: "
                                      f"{img_url}")
 
                         # Find matching boulder photo
@@ -494,49 +661,15 @@ class CragScraper:
                             logger.debug(f"Found matching boulder photo: "
                                          f"{matching_photo.id}")
 
-                            script_data = topo_image.find('script',
-                                                          class_='js-data')
-                            if script_data:
-                                try:
-                                    json_data = json.loads(
-                                        script_data.text.strip())
+                            # Extract route line data
+                            line_data = self._get_route_lines(
+                                img_div, matching_photo, route_name)
+                            if line_data:
+                                route_line_data.append(line_data)
+                        else:
+                            logger.warning(f"No matching boulder photo found"
+                                           f" for URL: {img_url}")
 
-                                    # Log the structure of the line data
-                                    logger.debug(
-                                        f"Line data structure for route "
-                                        f"'{route_name}'")
-                                    logger.debug(
-                                        f"- Has lines: {'lines' in json_data}")
-                                    logger.debug(
-                                        f"- Has strong line: "
-                                        f"{'strong_line' in json_data}")
-
-                                    if 'strong_line' in json_data:
-                                        # Create a RouteLineData object
-                                        line_data = RouteLineData(
-                                            photo_id=matching_photo.id,
-                                            line_points=json_data[
-                                                'strong_line'])
-                                        route_line_data.append(line_data)
-                                        logger.debug(
-                                            f"Added line data for photo "
-                                            f"{matching_photo.id}")
-                                    else:
-                                        logger.warning(
-                                            f"No strong line found for route "
-                                            f"'{route_name}' in photo "
-                                            f"{matching_photo.id}")
-                                except json.JSONDecodeError as je:
-                                    logger.error(
-                                        f"Failed to parse line data JSON: "
-                                        f"{str(je)}")
-                                    logger.debug(
-                                        "Raw line data: "
-                                        f"{script_data.text.strip()[:100]}...")
-                            else:
-                                logger.warning(
-                                    f"No matching boulder photo found"
-                                    f" for URL: {img_url}")
                     except Exception as e:
                         logger.error(f"Error processing line data for image"
                                      f" {idx}: {str(e)}")
@@ -560,4 +693,67 @@ class CragScraper:
 
         except Exception as e:
             logger.error(f"Error extracting route data: {str(e)}")
+            return None
+
+    def _get_route_lines(self, img_div, matching_photo, route_name):
+        """
+        Extract route line data from a topo image.
+
+        Note: This is a regular method (not async) to avoid coroutine issues.
+
+        Args:
+            topo_image: The HTML div containing the topo image
+            matching_photo: Matching BoulderPhoto object from boulder photos
+            route_name: Name of the route for logging
+
+        Returns:
+            RouteLineData object if successful, None otherwise
+        """
+        lines_element = img_div.find('script', class_='js-data')
+        if not lines_element:
+            logger.warning(
+                f"No script data found for route '{route_name}' topo image")
+            return None
+
+        try:
+            lines_text = lines_element.text.strip()
+            if not lines_text:
+                logger.warning(
+                    f"Empty script data for route '{route_name}' topo image")
+                return None
+
+            lines_data = json.loads(lines_text)
+
+            # For routes, we specifically want the "strong_line" which
+            # highlights this route
+            logger.debug(f"Line data structure for route '{route_name}'")
+            logger.debug(f"- Has strong line: {'strong_line' in lines_data}")
+
+            if 'strong_line' in lines_data:
+                # Create a RouteLineData object with the strong_line data
+                line_data = RouteLineData(
+                    photo_id=matching_photo.id,
+                    line_points=lines_data['strong_line'])
+                logger.debug(
+                    f"Successfully extracted strong line data for photo "
+                    f"{matching_photo.id} for route '{route_name}'")
+                return line_data
+            else:
+                # It's normal for some route photos not to have a strong_line
+                # if they're showing multiple routes
+                logger.info(
+                    f"No strong line found for route '{route_name}' in photo "
+                    f"{matching_photo.id} - this may be a multi-route topo")
+                return None
+
+        except json.JSONDecodeError as je:
+            logger.error(
+                f"Failed to parse line data JSON for route '{route_name}': "
+                f"{str(je)}")
+            if lines_element.text.strip():
+                logger.debug(
+                    f"Raw line data: {lines_element.text.strip()[:200]}...")
+            else:
+                logger.warning(
+                    f"Line data is empty string for route '{route_name}'")
             return None

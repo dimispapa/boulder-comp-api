@@ -44,3 +44,6 @@ celerybeat-schedule
 .vscode/
 .idea/
 .venv/
+
+# Project data files
+data/scraped/*.json

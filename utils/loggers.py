@@ -21,8 +21,7 @@ def setup_logging():
 
     # Configure a single handler for the root logger
     handler = logging.StreamHandler(sys.stdout)
-    formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
     handler.setFormatter(formatter)
     root_logger.addHandler(handler)
     root_logger.setLevel(LOG_LEVEL)
@@ -40,7 +39,8 @@ def setup_logging():
     # Create our application logger
     app_logger = logging.getLogger('boulder-comp-api')
     app_logger.setLevel(LOG_LEVEL)
-    # Don't add handlers to app_logger, let it use the root logger's handlers
+    # Allow propagation to root since we're using root handlers
+    app_logger.propagate = True
 
     return app_logger
 
@@ -61,21 +61,7 @@ def get_logger(module_name):
     Returns:
         logging.Logger: A logger configured with the main logger's settings
     """
-    return logging.getLogger(f'boulder-comp-api.{module_name}')
-
-
-# Optional: Add filter to exclude logs from showing in the terminal
-class ExcludeConsoleFilter(logging.Filter):
-
-    def filter(self, record):
-        return False
-
-
-# Add filter to console output but allow Heroku to capture it
-console_handler = logging.StreamHandler(sys.stdout)
-# console_handler.addFilter(ExcludeConsoleFilter())
-logger.addHandler(console_handler)
-
-# Prevent the logger from propagating to the root logger
-# This ensures logs don't show up in the console
-# logger.propagate = False
+    module_logger = logging.getLogger(f'boulder-comp-api.{module_name}')
+    # Set level directly to ensure it's respected
+    module_logger.setLevel(LOG_LEVEL)
+    return module_logger

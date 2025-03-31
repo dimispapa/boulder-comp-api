@@ -27,6 +27,12 @@ celery_app.conf.update(
     broker_connection_retry_on_startup=True,
     task_publish_retry=True,
     worker_log_color=True,
+    # Don't hijack the root logger
+    worker_hijack_root_logger=False,
+    # Don't redirect stdout/stderr to the logger
+    worker_redirect_stdouts=False,
+    worker_log_format='%(asctime)s - %(levelname)s - %(message)s',
+    worker_task_log_format='%(asctime)s - %(levelname)s - %(message)s',
 )
 
 # Auto-discover tasks in the 'tasks' directory

@@ -122,7 +122,7 @@ def store_crag_data(crag: Crag, supabase: Client) -> dict:
             # Insert boulder
             boulder_data = {
                 'sector_id': sector_id,
-                **boulder.to_supabase_dict()
+                **boulder.to_dict()
             }
             result = supabase.table('boulders').upsert(
                 boulder_data, on_conflict='url').execute()
@@ -148,7 +148,7 @@ def store_crag_data(crag: Crag, supabase: Client) -> dict:
                 # First insert the route
                 route_data = {
                     'boulder_id': boulder_id,
-                    **route.to_supabase_dict()
+                    **route.to_dict()
                 }
                 route_result = supabase.table('routes').upsert(
                     route_data, on_conflict='url').execute()

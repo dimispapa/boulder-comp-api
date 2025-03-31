@@ -62,3 +62,6 @@ docs/
 # Test files
 tests/
 test_*.py 
+
+# Project data files
+data/scraped/*.json 

@@ -62,19 +62,6 @@ def scrape_crag_task(self, crag_name: str):
         # Initialize scraper with the selected user agent
         scraper = CragScraper(headers, supabase, crag_name)
 
-        # Handle login synchronously
-        username = os.getenv("CRAGS_USERNAME")
-        password = os.getenv("CRAGS_PASSWORD")
-
-        if not username or not password:
-            return {"status": "error", "detail": "Missing 27crags credentials"}
-
-        # Regular synchronous login
-        login_success = scraper.login(username, password)
-
-        if not login_success:
-            return {"status": "error", "detail": "Failed to login to 27crags"}
-
         # Define a progress callback that also updates our local copy
         def update_progress(info):
             nonlocal progress_info
