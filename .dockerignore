@@ -29,7 +29,10 @@ var/
 *.egg-info/
 .installed.cfg
 *.egg
+
+# Testing
 .pytest_cache/
+pytest_cache/
 .coverage
 htmlcov/
 .venv/

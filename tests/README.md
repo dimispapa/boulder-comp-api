@@ -73,11 +73,17 @@ The test suite uses several mocking strategies:
 
 3. **File System**: File operations use mocks to avoid filesystem dependencies.
 
-## Debug Files
+## Debug Files and Cache
 
 For scraper tests, test runs create debug HTML files in the `tests/scraper/debug/` 
 directory that capture the state of pages during test execution. This directory
 is excluded from version control (.gitignore) and Docker builds (.dockerignore).
+
+The following test-related files and directories are also excluded:
+- `.pytest_cache/` - Pytest cache directory
+- `__pycache__/` - Python bytecode cache directories
+- `.coverage` - Coverage data files
+- `htmlcov/` - HTML coverage report directory 
 
 ## File Organization
 

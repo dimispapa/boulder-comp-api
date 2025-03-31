@@ -45,6 +45,12 @@ celerybeat-schedule
 .idea/
 .venv/
 
+# Testing
+.pytest_cache/
+pytest_cache/
+.coverage
+htmlcov/
+
 # Project data files
 data/scraped/*.json
 
