@@ -37,10 +37,10 @@ app.add_middleware(
 app.include_router(scraper.router,
                    prefix=f"{api_prefix}/scraper",
                    tags=["scraper"])
+app.include_router(media.router, prefix=f"{api_prefix}/media", tags=["media"])
 app.include_router(scoring.router,
                    prefix=f"{api_prefix}/scoring",
                    tags=["scoring"])
-app.include_router(media.router, prefix=f"{api_prefix}/media", tags=["media"])
 
 
 @setup_logging.connect

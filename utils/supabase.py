@@ -119,11 +119,16 @@ def store_crag_data(crag: Crag, supabase: Client) -> dict:
                 skipped_boulders.append(boulder.url)
                 continue
 
-            # Insert boulder
+            # Insert boulder - only include fields
+            # that match the database schema
             boulder_data = {
                 'sector_id': sector_id,
-                **boulder.to_dict()
+                'name': boulder.name,
+                'url': boulder.url,
+                'gps_postgis': boulder.gps_postgis,
+                'gps_string': boulder.gps_string
             }
+
             result = supabase.table('boulders').upsert(
                 boulder_data, on_conflict='url').execute()
 
@@ -143,13 +148,19 @@ def store_crag_data(crag: Crag, supabase: Client) -> dict:
                     photo_data, on_conflict='boulder_id,photo_id').execute()
                 stored_photos += 1
 
-            # Insert routes with their line data
+            # Insert routes with their line data - only include fields that
+            # match the database schema
             for route in boulder.routes:
                 # First insert the route
                 route_data = {
                     'boulder_id': boulder_id,
-                    **route.to_dict()
+                    'name': route.name,
+                    'url': route.url,
+                    'grade': route.grade,
+                    'rating': route.rating,
+                    'description': route.description
                 }
+
                 route_result = supabase.table('routes').upsert(
                     route_data, on_conflict='url').execute()
 
