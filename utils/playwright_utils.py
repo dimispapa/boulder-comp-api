@@ -3,13 +3,14 @@ Utility functions for handling JavaScript-rendered pages using Playwright.
 Provides browser automation to retrieve fully rendered HTML from dynamic
 websites.
 """
-from typing import Dict, Tuple, Any
+from typing import Dict, Tuple, Any, List
 from playwright.async_api import async_playwright, Page, Browser
 import os
 import asyncio
 import random
 import datetime
 import json
+import aiohttp
 
 from utils.loggers import logger
 
@@ -369,3 +370,52 @@ class PlaywrightSession:
 
         self.is_initialized = False
         logger.debug("PlaywrightSession closed")
+
+
+async def extract_session_cookies(session: aiohttp.ClientSession,
+                                  domain: str) -> List[Dict]:
+    """
+    Extract cookies from aiohttp session for use with Playwright.
+
+    Args:
+        session: Active aiohttp ClientSession
+        domain: Base domain to use for cookies without domain
+
+    Returns:
+        List of cookie dictionaries in Playwright format
+    """
+    try:
+        cookie_jar = session.cookie_jar
+        cookies = []
+
+        for cookie in cookie_jar:
+            # Convert from aiohttp cookie format to Playwright format
+            domain_value = domain.replace('https://', '')
+            if hasattr(cookie, 'domain') and cookie.domain:
+                domain_value = cookie.domain
+
+            path_value = '/'
+            if hasattr(cookie, 'path') and cookie.path:
+                path_value = cookie.path
+
+            secure_value = False
+            if hasattr(cookie, 'secure'):
+                secure_value = cookie.secure
+
+            # Default since we can't determine from aiohttp
+            playwright_cookie = {
+                'name': cookie.key,
+                'value': cookie.value,
+                'domain': domain_value,
+                'path': path_value,
+                'secure': secure_value,
+                'httpOnly': False,
+                'sameSite': 'Lax'  # Default value
+            }
+            cookies.append(playwright_cookie)
+
+        logger.debug(f"Extracted {len(cookies)} cookies from session")
+        return cookies
+    except Exception as e:
+        logger.error(f"Failed to extract cookies: {str(e)}")
+        return []

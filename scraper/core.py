@@ -19,7 +19,7 @@ from utils.general_utils import normalize_url
 from utils.loggers import logger
 from .models import Crag, Boulder, Route, BoulderPhoto, RouteLineData
 from utils.auth_utils import check_requires_authentication, standard_login
-from utils.playwright_utils import PlaywrightSession
+from utils.playwright_utils import PlaywrightSession, extract_session_cookies
 
 # Load environment variables
 load_dotenv()
@@ -119,8 +119,8 @@ class CragScraper:
                         await self.playwright_session.initialize(self.headers)
 
                         # Transfer cookies to Playwright session
-                        cookies = await self._extract_session_cookies(
-                            async_session)
+                        cookies = await extract_session_cookies(
+                            async_session, self.domain)
                         if cookies:
                             await self.playwright_session.context.add_cookies(
                                 cookies)
@@ -196,8 +196,8 @@ class CragScraper:
                 if not self.playwright_session.is_initialized:
                     await self.playwright_session.initialize(self.headers)
                     # Transfer cookies from standard session
-                    cookies = await self._extract_session_cookies(async_session
-                                                                  )
+                    cookies = await extract_session_cookies(
+                        async_session, self.domain)
                     if cookies:
                         await self.playwright_session.context.add_cookies(
                             cookies)
@@ -220,8 +220,8 @@ class CragScraper:
                         logger.info(
                             "Successfully re-authenticated, retrying request")
                         # Transfer cookies again and retry
-                        cookies = await self._extract_session_cookies(
-                            async_session)
+                        cookies = await extract_session_cookies(
+                            async_session, self.domain)
                         await self.playwright_session.context.add_cookies(
                             cookies)
                         content = await self.playwright_session.get_content(url
@@ -738,40 +738,6 @@ class CragScraper:
                 f"No strong line found for route '{route_name}' in photo "
                 f"{matching_photo.id} - this may be a multi-route topo")
             return None
-
-    async def _extract_session_cookies(
-            self, session: aiohttp.ClientSession) -> List[Dict]:
-        """Extract cookies from aiohttp session for use with Playwright."""
-        try:
-            cookie_jar = session.cookie_jar
-            cookies = []
-
-            for cookie in cookie_jar:
-                # Convert from aiohttp cookie format to Playwright format
-                playwright_cookie = {
-                    'name':
-                    cookie.key,
-                    'value':
-                    cookie.value,
-                    'domain':
-                    cookie.domain if cookie.domain else self.domain.replace(
-                        'https://', ''),
-                    'path':
-                    cookie.path if cookie.path else '/',
-                    'secure':
-                    cookie.secure,
-                    'httpOnly':
-                    False,  # Default since we can't determine from aiohttp
-                    'sameSite':
-                    'Lax'  # Default value
-                }
-                cookies.append(playwright_cookie)
-
-            logger.debug(f"Extracted {len(cookies)} cookies from session")
-            return cookies
-        except Exception as e:
-            logger.error(f"Failed to extract cookies: {str(e)}")
-            return []
 
     def _extract_lines_data(self, img_div, photo_id):
         """
