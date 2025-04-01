@@ -13,7 +13,7 @@ boulder-comp/
 ├── boulder-photos/
 │   ├── crag-name-1/
 │   │   ├── sector-name-1/
-│   │   │   ├── boulder_name_photo_id_hash.jpg
+│   │   │   ├── crag_name_sector_name_boulder_name_photo_id_hash.jpg
 │   │   │   └── ...
 │   │   ├── sector-name-2/
 │   │   │   └── ...
@@ -35,6 +35,7 @@ This structure provides several benefits:
 2. **Security**: Access control can be applied at different levels of the hierarchy
 3. **Performance**: Easier lookup and management of photos
 4. **Traceability**: Photos can be easily associated with their source
+5. **Descriptive Naming**: Each photo's filename includes its full context (crag, sector, boulder) for better organization and searchability
 
 ## Image Optimization with Cloudinary
 
