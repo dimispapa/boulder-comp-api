@@ -53,7 +53,8 @@ htmlcov/
 
 # Project data files
 data/
+*data/
 
 # Test debug files
 tests/scraper/debug/
-*/test_data/
+*.test_data/

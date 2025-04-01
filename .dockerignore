@@ -68,6 +68,8 @@ test_*.py
 
 # Project data files
 data/
+*data/
 
 # Test debug files
-tests/scraper/debug/ 
+tests/scraper/debug/
+*.test_data/
