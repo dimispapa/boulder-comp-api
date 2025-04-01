@@ -15,12 +15,13 @@ supabase = get_admin_supabase_client()
 
 @router.post("/upload-boulder-photos/{crag_name}")
 async def upload_boulder_photos_to_cloudinary(
-        crag_name: str) -> Dict[str, Any]:
+        crag_name: str = "inia-droushia") -> Dict[str, Any]:
     """
     Upload boulder photos for a crag directly to Cloudinary (synchronous).
 
     Args:
         crag_name (str): Name of the crag to process photos for.
+                         Default is "inia-droushia".
 
     Returns:
         dict: Upload result information

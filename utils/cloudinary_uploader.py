@@ -32,6 +32,8 @@ class CloudinaryUploader:
         """
         self.supabase = supabase
         self.folder_base = folder_base
+        # Cache to store verified folder paths to reduce API calls
+        self.folder_cache = set()
 
         # Initialize Cloudinary with credentials
         cloudinary.config(cloud_name=CLOUDINARY_CLOUD_NAME,
@@ -41,6 +43,86 @@ class CloudinaryUploader:
 
         logger.info(
             f"CloudinaryUploader initialized with base folder: {folder_base}")
+
+    def pre_create_folders(self, crag_name=None):
+        """
+        Pre-create all folders needed for uploads to minimize API calls.
+
+        Args:
+            crag_name (str, optional): Name of the crag to create folders for.
+                If None, creates folders for all crags.
+
+        Returns:
+            bool: True if folder creation was successful, False otherwise
+        """
+        logger.info(
+            "Pre-creating folders to minimize API calls during uploads")
+
+        # First, make sure the base folder exists
+        if not self._ensure_folder_exists(self.folder_base):
+            logger.error(f"Failed to create base folder: {self.folder_base}")
+            return False
+
+        # Create boulder-photos folder
+        boulder_photos_folder = f"{self.folder_base}/boulder-photos"
+        if not self._ensure_folder_exists(boulder_photos_folder):
+            logger.error(f"Failed to create folder: {boulder_photos_folder}")
+            return False
+
+        # Create competition-photos folder
+        competition_photos_folder = f"{self.folder_base}/competition-photos"
+        if not self._ensure_folder_exists(competition_photos_folder):
+            logger.error(
+                f"Failed to create folder: {competition_photos_folder}")
+            # Continue anyway - we might not need competition folders
+
+        # If we're only interested in a specific crag
+        if crag_name:
+            try:
+                # Get crag information
+                crag_response = self.supabase.table('crags').select(
+                    'id, name, display_name').eq('name', crag_name).execute()
+
+                if not crag_response.data:
+                    logger.error(f"Crag {crag_name} not found in database")
+                    return False
+
+                crag_id = crag_response.data[0]['id']
+
+                # Create the crag folder
+                crag_folder = f"{boulder_photos_folder}/{crag_name}"
+                if not self._ensure_folder_exists(crag_folder):
+                    logger.error(
+                        f"Failed to create crag folder: {crag_folder}")
+                    return False
+
+                # Get sectors in this crag
+                sector_response = self.supabase.table('sectors').select(
+                    'id, name').eq('crag_id', crag_id).execute()
+
+                if not sector_response.data:
+                    logger.info(f"No sectors found for crag {crag_name}")
+                    return True
+
+                # Create a folder for each sector
+                for sector in sector_response.data:
+                    sector_name = sector['name']
+                    # Use the full nested path as originally designed
+                    folder = \
+                        f"{boulder_photos_folder}/{crag_name}/{sector_name}"
+                    if not self._ensure_folder_exists(folder):
+                        logger.warning(f"Failed to create folder: {folder}")
+                        # Continue with next sector
+
+                return True
+
+            except Exception as e:
+                logger.error(f"Error pre-creating folders: {str(e)}")
+                logger.error(f"Exception details: {traceback.format_exc()}")
+                return False
+
+        # If no crag specified, we're done with the base folders
+        return True
 
     def upload_photos_for_crag(self, crag_name: str) -> Dict[str, Any]:
         """
@@ -53,6 +135,9 @@ class CloudinaryUploader:
             Dict[str, Any]: Result containing upload statistics
         """
         logger.info(f"Starting boulder photo upload for crag: {crag_name}")
+
+        # Pre-create folders to minimize API calls during uploads
+        self.pre_create_folders(crag_name)
 
         # Initialize counters
         successful_uploads = 0
@@ -355,6 +440,88 @@ class CloudinaryUploader:
                 "failures": failed_uploads
             }
 
+    def _ensure_folder_exists(self, folder_path: str) -> bool:
+        """
+        Check if a folder exists in Cloudinary, and create it if it doesn't.
+        Uses caching to reduce API calls.
+
+        Args:
+            folder_path (str): The full path of the folder to check/create
+
+        Returns:
+            bool: True if folder exists or was created successfully,
+                 False on error
+        """
+        # Check if this folder path has already been verified
+        if folder_path in self.folder_cache:
+            return True
+
+        try:
+            # Split the path to get parent folder and current folder
+            path_parts = folder_path.split('/')
+
+            # If this is a root folder
+            if len(path_parts) == 1:
+                folders_response = cloudinary.api.root_folders()
+                root_folders = [
+                    folder["path"]
+                    for folder in folders_response.get("folders", [])
+                ]
+
+                if folder_path not in root_folders:
+                    logger.info(f"Creating root folder: {folder_path}")
+                    cloudinary.api.create_folder(folder_path)
+
+                # Add to cache
+                self.folder_cache.add(folder_path)
+                return True
+
+            # For nested folders, first ensure parent exists
+            parent_path = '/'.join(path_parts[:-1])
+            if not self._ensure_folder_exists(parent_path):
+                return False
+
+            # Check if the current folder exists in the parent
+            subfolders_response = cloudinary.api.subfolders(parent_path)
+            subfolder_paths = [
+                folder["path"]
+                for folder in subfolders_response.get("folders", [])
+            ]
+
+            if folder_path not in subfolder_paths:
+                logger.info(f"Creating folder: {folder_path}")
+                cloudinary.api.create_folder(folder_path)
+
+            # Add to cache
+            self.folder_cache.add(folder_path)
+            return True
+
+        except Exception as e:
+            if "Rate Limit Exceeded" in str(e):
+                logger.warning("Cloudinary rate limit exceeded. "
+                               "Using cached folders where possible.")
+
+            logger.error(f"Error ensuring folder exists: {str(e)}")
+            logger.error(f"Exception details: {traceback.format_exc()}")
+            return False
+
+    def _setup_folder_structure(self, folder_path: str) -> bool:
+        """
+        Set up the folder structure for uploads.
+
+        Args:
+            folder_path (str): The full path to set up
+
+        Returns:
+            bool: True if structure was set up successfully, False otherwise
+        """
+        try:
+            return self._ensure_folder_exists(folder_path)
+        except Exception as e:
+            logger.error(f"Error setting up folder structure: {str(e)}")
+            logger.error(f"Exception details: {traceback.format_exc()}")
+            return False
+
     def _upload_boulder_photo(self, photo_data: Dict[str,
                                                      Any]) -> Dict[str, Any]:
         """
@@ -369,6 +536,7 @@ class CloudinaryUploader:
         photo_id = photo_data["id"]
         source_url = photo_data["url"]
         boulder_display_name = photo_data["boulder_display_name"]
+        boulder_name = photo_data["boulder_name"]
         crag_name = photo_data["crag_name"]
         sector_name = photo_data["sector_name"]
 
@@ -377,33 +545,59 @@ class CloudinaryUploader:
         logger.debug(f"Source URL: {source_url}")
 
         try:
-            # Generate folder path for organizing in Cloudinary
-            folder_path = (f"{self.folder_base}/boulder-photos/{crag_name}/"
-                           f"{sector_name}")
+            # Use the original nested folder structure
+            folder_path = \
+                f"{self.folder_base}/boulder-photos/{crag_name}/{sector_name}"
 
-            # Generate a safe public_id (Cloudinary's version of a filename)
+            # Check if this folder exists in our cache first
+            if folder_path not in self.folder_cache:
+                # Try parent folder levels as fallback
+                parent_folder = \
+                    f"{self.folder_base}/boulder-photos/{crag_name}"
+                if parent_folder in self.folder_cache:
+                    # Create sector folder if possible
+                    if self._ensure_folder_exists(folder_path):
+                        # Successfully created the full path
+                        pass
+                    else:
+                        # If we can't create the sector folder,
+                        # use the crag folder
+                        folder_path = parent_folder
+                else:
+                    # Try boulder-photos folder
+                    parent_folder = f"{self.folder_base}/boulder-photos"
+                    if parent_folder in self.folder_cache:
+                        folder_path = parent_folder
+                    else:
+                        # Last resort - use base folder
+                        folder_path = self.folder_base
+                        if folder_path not in self.folder_cache:
+                            # No folders - use root
+                            folder_path = ""
+
+            # Generate a safe filename (without folder path)
             safe_boulder_name = "".join(c if c.isalnum() or c == "_" else "_"
                                         for c in boulder_display_name)
-            public_id = (f"{folder_path}/{safe_boulder_name}_"
-                         f"{photo_data['photo_id']}_{uuid.uuid4().hex[:8]}")
+            safe_crag_name = "".join(c if c.isalnum() or c == "_" else "_"
+                                     for c in crag_name)
+            safe_sector_name = "".join(c if c.isalnum() or c == "_" else "_"
+                                       for c in sector_name)
+
+            # Create unique filename with crag, sector, and boulder info
+            file_name = (f"{safe_crag_name}_{safe_sector_name}_"
+                         f"{safe_boulder_name}_{photo_data['photo_id']}_"
+                         f"{uuid.uuid4().hex[:8]}")
 
             # Upload directly from the URL to Cloudinary
+            # using the folder parameter
             upload_result = cloudinary.uploader.upload(
                 source_url,
-                public_id=public_id,
+                folder=folder_path,
+                public_id=file_name,
                 resource_type="image",
                 overwrite=True,
-                format="auto",  # Automatic format conversion
-                quality="auto",  # Automatic quality compression
-                fetch_format="auto",  # Serve in best format for client
                 responsive=True,  # Generate responsive variants
-                tags=["boulder", crag_name, sector_name],
-                transformation=[
-                    {
-                        "fetch_format": "auto",
-                        "quality": "auto"
-                    },
-                ])
+                tags=["boulder", crag_name, sector_name, boulder_name])
 
             # Get the secure URL from the response
             cloudinary_url = upload_result["secure_url"]
@@ -458,30 +652,43 @@ class CloudinaryUploader:
             folder_path = (f"{self.folder_base}/competition-photos/"
                            f"{competition_name}")
 
-            # Generate a safe public_id (Cloudinary's version of a filename)
+            # Set up the folder structure for this upload
+            folder_setup_success = self._setup_folder_structure(folder_path)
+
+            if not folder_setup_success:
+                logger.warning(
+                    f"Could not set up folder structure for {folder_path}. "
+                    f"Will attempt upload with simplified path.")
+                # Fall back to a simpler path if folder creation failed
+                if (f"{self.folder_base}/competition-photos"
+                        in self.folder_cache):
+                    folder_path = f"{self.folder_base}/competition-photos"
+                elif self.folder_base in self.folder_cache:
+                    folder_path = self.folder_base
+                else:
+                    # Last resort - root folder
+                    folder_path = ""
+
+            # Generate a safe filename (without folder path)
             safe_uploader_name = "".join(c if c.isalnum() or c == "_" else "_"
                                          for c in uploader_name)
-            public_id = (f"{folder_path}/{safe_uploader_name}_"
-                         f"{uuid.uuid4().hex[:8]}")
 
-            # Upload directly from the URL to Cloudinary
+            # Create unique filename with uploader info
+            file_name = f"{safe_uploader_name}_{uuid.uuid4().hex[:8]}"
+
+            # Upload directly from the URL to Cloudinary using folder parameter
             upload_result = cloudinary.uploader.upload(
                 source_url,
-                public_id=public_id,
+                folder=folder_path,
+                public_id=file_name,
                 resource_type="image",
                 overwrite=True,
-                format="auto",  # Automatic format conversion
-                quality="auto",  # Automatic quality compression
-                fetch_format="auto",  # Serve in best format for client
                 responsive=True,  # Generate responsive variants
-                moderation="aws_rek",  # Use AWS Rekognition for content
-                # moderation
-                tags=["competition", competition_name, "user-submitted"],
-                transformation=[
-                    {
-                        "fetch_format": "auto",
-                        "quality": "auto"
-                    },
+                moderation="aws_rek",  # Use AWS Rekognition for
+                # content moderation
+                tags=[
+                    "competition", competition_name, "user-submitted",
+                    safe_uploader_name
                 ])
 
             # Get the secure URL from the response
