@@ -310,7 +310,6 @@ EXECUTE FUNCTION update_competition_photos_updated_at();
 CREATE INDEX idx_sectors_name ON sectors(name);
 CREATE INDEX idx_boulders_sector_id ON boulders(sector_id);
 CREATE INDEX idx_boulder_photos_boulder_id ON boulder_photos(boulder_id);
-CREATE INDEX idx_boulder_photos_storage_url ON boulder_photos(storage_url);
 CREATE INDEX idx_routes_boulder_id ON routes(boulder_id);
 CREATE INDEX idx_teams_competition_id ON teams(competition_id);
 CREATE INDEX idx_participants_competition_id ON participants(competition_id);
