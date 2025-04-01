@@ -29,22 +29,22 @@ CREATE EXTENSION IF NOT EXISTS "postgis";
 CREATE TYPE competition_status AS ENUM ('ongoing', 'completed');
 CREATE TYPE competition_category AS ENUM ('marathon', 'boulder_beasts');
 
+-- Create crags table
+CREATE TABLE crags (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name TEXT NOT NULL UNIQUE,
+    display_name TEXT NOT NULL UNIQUE,
+    description TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Create sectors table
 CREATE TABLE sectors (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name TEXT NOT NULL UNIQUE,
     display_name TEXT NOT NULL UNIQUE,
     crag_id UUID NOT NULL REFERENCES crags(id) ON DELETE CASCADE,
-    description TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Create crags table
-CREATE TABLE crags (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name TEXT NOT NULL UNIQUE,
-    display_name TEXT NOT NULL UNIQUE,
     description TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
