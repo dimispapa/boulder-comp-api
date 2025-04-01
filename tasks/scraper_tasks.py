@@ -291,7 +291,6 @@ def store_crag_data_task(self, file_path: str):
                 'crag_name': crag_data.name,
                 'total_boulders': total_boulders,
                 'total_routes': total_routes,
-                'progress_percent': 10  # Just started storing
             })
 
         # Store the data using the existing utility function
