@@ -52,7 +52,11 @@ def config_loggers(*args, **kwargs):
 @app.get("/", tags=["root"])
 async def root():
     """Root endpoint to verify API is running."""
-    return {"message": "Boulder Competition API is running"}
+    return {
+        "message":
+        "Boulder Competition API is running. Go to /docs to see the API"
+        " documentation and try out the endpoints."
+    }
 
 
 if __name__ == "__main__":
