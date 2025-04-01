@@ -12,10 +12,7 @@ load_dotenv()
 celery_app = Celery('boulder_comp_api',
                     broker=os.getenv('REDIS_URL', 'redis://localhost:6379/0'),
                     backend=os.getenv('REDIS_URL', 'redis://localhost:6379/0'),
-                    include=[
-                        'tasks.scraper_tasks', 'tasks.scoring_tasks',
-                        'tasks.media_tasks'
-                    ])
+                    include=['tasks.scraper_tasks', 'tasks.scoring_tasks'])
 
 # Configure Celery
 celery_app.conf.update(

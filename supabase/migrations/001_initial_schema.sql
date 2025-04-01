@@ -13,6 +13,7 @@ DROP TABLE IF EXISTS teams CASCADE;
 DROP TABLE IF EXISTS competitions CASCADE;
 DROP TABLE IF EXISTS routes CASCADE;
 DROP TABLE IF EXISTS boulder_photos CASCADE;
+DROP TABLE IF EXISTS competition_photos CASCADE;
 DROP TABLE IF EXISTS boulder_sector_mappings CASCADE;
 DROP TABLE IF EXISTS boulders CASCADE;
 DROP TABLE IF EXISTS sectors CASCADE;
@@ -113,14 +114,18 @@ CREATE TABLE boulder_photos (
     boulder_id UUID NOT NULL REFERENCES boulders(id) ON DELETE CASCADE,
     url TEXT NOT NULL,
     photo_id TEXT NOT NULL,
-    storage_url TEXT,
+    cloudinary_url TEXT,
+    cloudinary_public_id TEXT,
+    cloudinary_resource_type TEXT DEFAULT 'image',
     lines_data JSONB,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     UNIQUE(boulder_id, photo_id)
 );
 -- Add comment for documentation
-COMMENT ON COLUMN boulder_photos.storage_url IS 'URL of the photo in Supabase Storage, populated after successful upload';
+COMMENT ON COLUMN boulder_photos.cloudinary_url IS 'URL of the photo in Cloudinary, populated after successful upload';
+COMMENT ON COLUMN boulder_photos.cloudinary_public_id IS 'Cloudinary public ID (used for referencing the image in Cloudinary APIs)';
+COMMENT ON COLUMN boulder_photos.cloudinary_resource_type IS 'Cloudinary resource type (image, video, etc.)';
 
 -- Create routes table
 CREATE TABLE routes (
@@ -259,6 +264,48 @@ CREATE TABLE boulder_beasts_rankings (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Create competition_photos table for user-submitted photos
+CREATE TABLE competition_photos (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    competition_id UUID NOT NULL REFERENCES competitions(id) ON DELETE CASCADE,
+    uploader_id UUID NOT NULL REFERENCES participants(id) ON DELETE SET NULL,
+    url TEXT NOT NULL,
+    cloudinary_url TEXT,
+    cloudinary_public_id TEXT,
+    cloudinary_resource_type TEXT DEFAULT 'image',
+    description TEXT,
+    moderation_status TEXT DEFAULT 'pending',
+    approved BOOLEAN DEFAULT FALSE,
+    featured BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Add comments for documentation
+COMMENT ON TABLE competition_photos IS 'User-submitted photos for competitions';
+COMMENT ON COLUMN competition_photos.uploader_id IS 'ID of the participant who uploaded the photo';
+COMMENT ON COLUMN competition_photos.url IS 'Original source URL of the photo';
+COMMENT ON COLUMN competition_photos.cloudinary_url IS 'URL of the photo in Cloudinary';
+COMMENT ON COLUMN competition_photos.cloudinary_public_id IS 'Cloudinary public ID for the photo';
+COMMENT ON COLUMN competition_photos.description IS 'User-provided description of the photo';
+COMMENT ON COLUMN competition_photos.moderation_status IS 'Status of content moderation (pending, approved, rejected)';
+COMMENT ON COLUMN competition_photos.approved IS 'Whether the photo has been approved by a moderator';
+COMMENT ON COLUMN competition_photos.featured IS 'Whether the photo is featured on the competition page';
+
+-- Create updated_at trigger for competition_photos
+CREATE OR REPLACE FUNCTION update_competition_photos_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER competition_photos_updated_at
+BEFORE UPDATE ON competition_photos
+FOR EACH ROW
+EXECUTE FUNCTION update_competition_photos_updated_at(); 
+
 -- Create indexes for better query performance
 CREATE INDEX idx_sectors_name ON sectors(name);
 CREATE INDEX idx_boulders_sector_id ON boulders(sector_id);
@@ -282,6 +329,11 @@ CREATE INDEX idx_boulder_sector_mappings_url ON boulder_sector_mappings(boulder_
 CREATE INDEX idx_boulder_sector_mappings_sector_id ON boulder_sector_mappings(sector_id);
 CREATE INDEX idx_sectors_crag_id ON sectors(crag_id);
 CREATE INDEX idx_competitions_crag_id ON competitions(crag_id);
+CREATE INDEX idx_boulder_photos_cloudinary_url ON boulder_photos(cloudinary_url);
+CREATE INDEX idx_competition_photos_competition_id ON competition_photos(competition_id);
+CREATE INDEX idx_competition_photos_uploader_id ON competition_photos(uploader_id);
+CREATE INDEX idx_competition_photos_approved ON competition_photos(approved);
+CREATE INDEX idx_competition_photos_featured ON competition_photos(featured);
 
 -- Create RLS (Row Level Security) policies
 ALTER TABLE crags ENABLE ROW LEVEL SECURITY;
@@ -296,6 +348,7 @@ ALTER TABLE ascents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE scored_ascents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE marathon_rankings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE boulder_beasts_rankings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE competition_photos ENABLE ROW LEVEL SECURITY;
 
 -- Create policies for public read access
 CREATE POLICY "Public read access for crags" ON crags
@@ -333,6 +386,9 @@ CREATE POLICY "Public read access for marathon_rankings" ON marathon_rankings
 
 CREATE POLICY "Public read access for boulder_beasts_rankings" ON boulder_beasts_rankings
     FOR SELECT USING (true);
+
+CREATE POLICY "Public read access for competition_photos" ON competition_photos
+    FOR SELECT USING (approved = true);
 
 -- Create policies for authenticated write access
 CREATE POLICY "Authenticated write access for ascents" ON ascents
@@ -381,6 +437,9 @@ CREATE POLICY "Admin access for all tables" ON marathon_rankings
 CREATE POLICY "Admin access for all tables" ON boulder_beasts_rankings
     FOR ALL USING (auth.role() = 'service_role');
 
+CREATE POLICY "Admin access for all tables" ON competition_photos
+    FOR ALL USING (auth.role() = 'service_role');
+
 -- Insert default scoring configuration
 INSERT INTO base_points (grade, points, increment_factor) VALUES
     ('3', 5, 1.2),
@@ -421,4 +480,4 @@ INSERT INTO team_ascent_bonus (team_size, bonus_factor) VALUES
     (4, 0.28);
 
 INSERT INTO master_grade_bonus (bonus_factor) VALUES
-    (0.50); 
+    (0.50);

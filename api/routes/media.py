@@ -1,93 +1,215 @@
 """
 API routes for media uploading and processing.
 """
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, HTTPException
 from typing import Dict, Any
 
-from tasks.media_tasks import upload_photos_task
+from utils.supabase import get_admin_supabase_client
+from utils.cloudinary_uploader import CloudinaryUploader
 
 # Initialize router
 router = APIRouter()
+# Initialize Supabase client for direct operations
+supabase = get_admin_supabase_client()
 
 
-@router.post("/upload-photos/{crag_name}")
-async def upload_crag_photos(
-    background_tasks: BackgroundTasks,
-    crag_name: str = "inia-droushia"
-) -> Dict[str, Any]:
+@router.post("/upload-boulder-photos/{crag_name}")
+async def upload_boulder_photos_to_cloudinary(
+        crag_name: str) -> Dict[str, Any]:
     """
-    Start a background task to upload photos for a specific crag.
+    Upload boulder photos for a crag directly to Cloudinary (synchronous).
 
     Args:
         crag_name (str): Name of the crag to process photos for.
-        Defaults to 'inia-droushia'.
 
     Returns:
-        dict: Task information
+        dict: Upload result information
     """
     try:
-        # Start the Celery task
-        task = upload_photos_task.delay(crag_name)
+        # Create a CloudinaryUploader and upload photos
+        uploader = CloudinaryUploader(supabase)
+        result = uploader.upload_photos_for_crag(crag_name)
 
         return {
-            "status": "started",
-            "task_id": task.id,
+            "status": result.get("status", "error"),
             "crag_name": crag_name,
-            "message": f"Photo upload for crag '{crag_name}' started"
+            "total_photos": result.get("total", 0),
+            "uploaded_photos": result.get("uploaded", 0),
+            "failed_photos": result.get("failed", 0),
+            "message":
+            (f"Boulder photos upload for crag '{crag_name}' completed")
         }
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to start photo upload task: {str(e)}")
+            detail=f"Failed to upload boulder photos: {str(e)}")
 
 
-@router.get("/upload-photos/{task_id}/status")
-async def check_upload_status(task_id: str) -> Dict[str, Any]:
+@router.post("/upload-competition-photos/{competition_id}")
+async def upload_competition_photos_to_cloudinary(
+        competition_id: str) -> Dict[str, Any]:
     """
-    Check the status of a photo upload task.
+    Upload user-submitted competition photos to Cloudinary (synchronous).
 
     Args:
-        task_id (str): Celery task ID
+        competition_id (str): ID of the competition.
 
     Returns:
-        dict: Task status information
+        dict: Upload result information
     """
-    task = upload_photos_task.AsyncResult(task_id)
+    try:
+        # Create a CloudinaryUploader and upload competition photos
+        uploader = CloudinaryUploader(supabase)
+        result = uploader.upload_competition_photos(competition_id)
 
-    if task.state == 'PENDING':
-        response = {
-            "status": "pending",
-            "task_id": task_id,
-            "message": "Task is pending"
+        return {
+            "status":
+            result.get("status", "error"),
+            "competition_id":
+            competition_id,
+            "total_photos":
+            result.get("total", 0),
+            "uploaded_photos":
+            result.get("uploaded", 0),
+            "failed_photos":
+            result.get("failed", 0),
+            "message":
+            (f"Competition photos upload for ID '{competition_id}' completed")
         }
-    elif task.state == 'PROGRESS':
-        response = {"status": "in_progress", "task_id": task_id, **task.info}
-    elif task.state == 'SUCCESS':
-        if task.info.get("status") == "error":
-            response = {
-                "status": "error",
-                "task_id": task_id,
-                "error": task.info.get("error"),
-                "traceback": task.info.get("traceback")
-            }
-        else:
-            response = {
-                "status": "completed",
-                "task_id": task_id,
-                "crag_name": task.info.get("crag_name"),
-                "metrics": task.info.get("metrics", {}),
-                "failures": task.info.get("failures", [])
-            }
-    elif task.state == 'FAILURE':
-        response = {
-            "status": "failed",
-            "task_id": task_id,
-            "error": str(task.result),
-        }
-    else:
-        response = {
-            "status": task.state,
-            "task_id": task_id,
-        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to upload competition photos: {str(e)}")
 
-    return response
+
+@router.get("/competition-photos/{competition_id}")
+async def get_competition_photos(competition_id: str,
+                                 approved_only: bool = True) -> Dict[str, Any]:
+    """
+    Get competition photos for a specific competition.
+
+    Args:
+        competition_id (str): ID of the competition.
+        approved_only (bool): Whether to return only approved photos.
+
+    Returns:
+        dict: Competition photos information
+    """
+    try:
+        # Build the query
+        query = supabase.table('competition_photos') \
+            .select(
+                'id, cloudinary_url, description, uploader_id, featured, '
+                'approved, created_at'
+            ) \
+            .eq('competition_id', competition_id)
+
+        # Filter by approved status if needed
+        if approved_only:
+            query = query.eq('approved', True)
+
+        # Execute the query
+        response = query.execute()
+
+        # Get the competition details
+        competition = supabase.table('competitions') \
+            .select('name, display_name') \
+            .eq('id', competition_id) \
+            .execute()
+
+        competition_name = (competition.data[0]['display_name']
+                            if competition.data else "Unknown Competition")
+
+        return {
+            "status": "success",
+            "competition_id": competition_id,
+            "competition_name": competition_name,
+            "photo_count": len(response.data),
+            "photos": response.data
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve competition photos: {str(e)}")
+
+
+@router.patch("/competition-photos/{photo_id}/approve")
+async def approve_competition_photo(photo_id: str,
+                                    approve: bool = True) -> Dict[str, Any]:
+    """
+    Approve or unapprove a competition photo.
+
+    Args:
+        photo_id (str): ID of the photo.
+        approve (bool): Whether to approve or unapprove the photo.
+
+    Returns:
+        dict: Result information
+    """
+    try:
+        # Update the photo approval status
+        response = supabase.table('competition_photos') \
+            .update({'approved': approve}) \
+            .eq('id', photo_id) \
+            .execute()
+
+        if not response.data:
+            raise HTTPException(status_code=404,
+                                detail=f"Photo with ID {photo_id} not found")
+
+        status = "approved" if approve else "unapproved"
+
+        return {
+            "status": "success",
+            "photo_id": photo_id,
+            "approved": approve,
+            "message": f"Photo has been {status}"
+        }
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update photo approval status: {str(e)}")
+
+
+@router.patch("/competition-photos/{photo_id}/feature")
+async def feature_competition_photo(photo_id: str,
+                                    feature: bool = True) -> Dict[str, Any]:
+    """
+    Feature or unfeature a competition photo.
+
+    Args:
+        photo_id (str): ID of the photo.
+        feature (bool): Whether to feature or unfeature the photo.
+
+    Returns:
+        dict: Result information
+    """
+    try:
+        # Update the photo feature status
+        response = supabase.table('competition_photos') \
+            .update({'featured': feature}) \
+            .eq('id', photo_id) \
+            .execute()
+
+        if not response.data:
+            raise HTTPException(status_code=404,
+                                detail=f"Photo with ID {photo_id} not found")
+
+        status = "featured" if feature else "unfeatured"
+
+        return {
+            "status": "success",
+            "photo_id": photo_id,
+            "featured": feature,
+            "message": f"Photo has been {status}"
+        }
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update photo feature status: {str(e)}")
