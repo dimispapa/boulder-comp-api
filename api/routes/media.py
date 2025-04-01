@@ -1,8 +1,10 @@
 """
 API routes for media uploading and processing.
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, File, UploadFile, Form, Query
 from typing import Dict, Any
+import os
+import uuid
 
 from utils.supabase import get_admin_supabase_client
 from utils.cloudinary_uploader import CloudinaryUploader
@@ -47,40 +49,96 @@ async def upload_boulder_photos_to_cloudinary(
 
 
 @router.post("/upload-competition-photos/{competition_id}")
-async def upload_competition_photos_to_cloudinary(
-        competition_id: str) -> Dict[str, Any]:
+async def upload_user_photo(
+        competition_id: str,
+        photo: UploadFile = File(...),
+        user_id: str = Query(...),
+        description: str = Form(""),
+) -> Dict[str, Any]:
     """
-    Upload user-submitted competition photos to Cloudinary (synchronous).
+    Handle direct photo uploads from competition participants.
 
     Args:
-        competition_id (str): ID of the competition.
+        competition_id (str): ID of the competition
+        photo (UploadFile): The uploaded photo file
+        user_id (str): ID of the participant uploading
+        description (str): Optional photo description
 
     Returns:
         dict: Upload result information
     """
     try:
-        # Create a CloudinaryUploader and upload competition photos
-        uploader = CloudinaryUploader(supabase)
-        result = uploader.upload_competition_photos(competition_id)
+        # Verify user is a participant of this competition
+        participant = supabase.table("participants")\
+            .select("id")\
+            .eq("user_id", user_id)\
+            .eq("competition_id", competition_id)\
+            .execute()
 
-        return {
-            "status":
-            result.get("status", "error"),
+        if not participant.data:
+            raise HTTPException(
+                status_code=403,
+                detail="User is not a participant in this competition")
+
+        # Save the temporary file
+        temp_file_path = f"/tmp/{uuid.uuid4()}.jpg"
+        with open(temp_file_path, "wb") as temp_file:
+            content = await photo.read()
+            temp_file.write(content)
+
+        # Create record in competition_photos
+        photo_record = supabase.table("competition_photos").insert({
             "competition_id":
             competition_id,
-            "total_photos":
-            result.get("total", 0),
-            "uploaded_photos":
-            result.get("uploaded", 0),
-            "failed_photos":
-            result.get("failed", 0),
-            "message":
-            (f"Competition photos upload for ID '{competition_id}' completed")
+            "uploader_id":
+            participant.data[0]["id"],
+            "url":
+            temp_file_path,  # Temporary local path
+            "description":
+            description
+        }).execute()
+
+        if not photo_record.data:
+            raise HTTPException(status_code=500,
+                                detail="Failed to create photo record")
+
+        # Upload to Cloudinary
+        uploader = CloudinaryUploader(supabase)
+        upload_result = uploader._upload_competition_photo({
+            "id":
+            photo_record.data[0]["id"],
+            "source_url":
+            temp_file_path,
+            "competition_id":
+            competition_id,
+            "uploader_id":
+            participant.data[0]["id"]
+        })
+
+        # Clean up temp file
+        os.remove(temp_file_path)
+
+        if not upload_result.get("success"):
+            return {
+                "status": "error",
+                "competition_id": competition_id,
+                "message": upload_result.get("error", "Unknown error")
+            }
+
+        return {
+            "status": "success",
+            "competition_id": competition_id,
+            "photo_id": upload_result["photo_id"],
+            "url": upload_result["cloudinary_url"],
+            "message": "Photo uploaded successfully"
         }
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to upload competition photos: {str(e)}")
+            detail=f"Failed to upload competition photo: {str(e)}")
 
 
 @router.get("/competition-photos/{competition_id}")
