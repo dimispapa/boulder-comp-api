@@ -58,8 +58,10 @@ def upload_photos_task(self, crag_name: str) -> Dict[str, Any]:
         self.update_state(state='SUCCESS',
                           meta={
                               'status': 'completed',
-                              'message':
-                              f'Completed photo upload for crag {crag_name}',
+                              'message': (
+                                  f'Completed photo upload for crag '
+                                  f'{crag_name}'
+                              ),
                               'metrics': metrics,
                               'failures': failure_details
                           })
@@ -74,6 +76,7 @@ def upload_photos_task(self, crag_name: str) -> Dict[str, Any]:
     except Exception as e:
         logger.error(
             f"Error in upload_photos_task for crag {crag_name}: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return {
             "status": "error",
             "crag_name": crag_name,

@@ -16,7 +16,7 @@ DROP TABLE IF EXISTS boulder_photos CASCADE;
 DROP TABLE IF EXISTS boulder_sector_mappings CASCADE;
 DROP TABLE IF EXISTS boulders CASCADE;
 DROP TABLE IF EXISTS sectors CASCADE;
-
+DROP TABLE IF EXISTS crags CASCADE;
 -- Drop enum types
 DROP TYPE IF EXISTS competition_status CASCADE;
 DROP TYPE IF EXISTS competition_category CASCADE;
@@ -33,27 +33,44 @@ CREATE TYPE competition_category AS ENUM ('marathon', 'boulder_beasts');
 CREATE TABLE sectors (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name TEXT NOT NULL UNIQUE,
+    display_name TEXT NOT NULL UNIQUE,
+    crag_id UUID NOT NULL REFERENCES crags(id) ON DELETE CASCADE,
     description TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Create crags table
+CREATE TABLE crags (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name TEXT NOT NULL UNIQUE,
+    display_name TEXT NOT NULL UNIQUE,
+    description TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Insert initial crags
+INSERT INTO crags (id, name, display_name) VALUES
+    (uuid_generate_v4(), 'inia-droushia', 'Inia Droushia');
+
 -- Insert initial sectors
-INSERT INTO sectors (id, name) VALUES
-    (uuid_generate_v4(), 'Inia'),
-    (uuid_generate_v4(), 'Pano Droushia'),
-    (uuid_generate_v4(), 'Kato Droushia'),
-    (uuid_generate_v4(), 'Alikou'),
-    (uuid_generate_v4(), 'Kari'),
-    (uuid_generate_v4(), 'Gerakopetra'),
-    (uuid_generate_v4(), 'Pano Akamas'),
-    (uuid_generate_v4(), 'Panorama');
+INSERT INTO sectors (id, name, display_name, crag_id) VALUES
+    (uuid_generate_v4(), 'inia', 'Inia', (SELECT id FROM crags WHERE name = 'inia-droushia')),
+    (uuid_generate_v4(), 'pano-droushia', 'Pano Droushia', (SELECT id FROM crags WHERE name = 'inia-droushia')),
+    (uuid_generate_v4(), 'kato-droushia', 'Kato Droushia', (SELECT id FROM crags WHERE name = 'inia-droushia')),
+    (uuid_generate_v4(), 'alikou', 'Alikou', (SELECT id FROM crags WHERE name = 'inia-droushia')),
+    (uuid_generate_v4(), 'kari', 'Kari', (SELECT id FROM crags WHERE name = 'inia-droushia')),
+    (uuid_generate_v4(), 'gerakopetra', 'Gerakopetra', (SELECT id FROM crags WHERE name = 'inia-droushia')),
+    (uuid_generate_v4(), 'pano-akamas', 'Pano Akamas', (SELECT id FROM crags WHERE name = 'inia-droushia')),
+    (uuid_generate_v4(), 'panorama', 'Panorama', (SELECT id FROM crags WHERE name = 'inia-droushia'));
 
 -- Create boulders table
 CREATE TABLE boulders (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     sector_id UUID NOT NULL REFERENCES sectors(id) ON DELETE RESTRICT,
     name TEXT NOT NULL,
+    display_name TEXT NOT NULL,
     url TEXT NOT NULL UNIQUE,
     gps_postgis GEOGRAPHY(POINT),
     gps_string TEXT,
@@ -110,6 +127,7 @@ CREATE TABLE routes (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     boulder_id UUID NOT NULL REFERENCES boulders(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
+    display_name TEXT NOT NULL,
     url TEXT NOT NULL UNIQUE,
     grade TEXT NOT NULL,
     rating FLOAT,
@@ -122,7 +140,9 @@ CREATE TABLE routes (
 -- Create competitions table
 CREATE TABLE competitions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name TEXT NOT NULL,
+    name TEXT NOT NULL UNIQUE,
+    crag_id UUID NOT NULL REFERENCES crags(id) ON DELETE SET NULL,
+    display_name TEXT NOT NULL UNIQUE,
     category TEXT[] NOT NULL,
     start_date DATE NOT NULL,
     end_date DATE NOT NULL,
@@ -259,8 +279,12 @@ CREATE INDEX idx_marathon_rankings_team_id ON marathon_rankings(team_id);
 CREATE INDEX idx_boulder_beasts_rankings_competition_id ON boulder_beasts_rankings(competition_id);
 CREATE INDEX idx_boulder_beasts_rankings_participant_id ON boulder_beasts_rankings(participant_id);
 CREATE INDEX idx_boulder_sector_mappings_url ON boulder_sector_mappings(boulder_url);
+CREATE INDEX idx_boulder_sector_mappings_sector_id ON boulder_sector_mappings(sector_id);
+CREATE INDEX idx_sectors_crag_id ON sectors(crag_id);
+CREATE INDEX idx_competitions_crag_id ON competitions(crag_id);
 
 -- Create RLS (Row Level Security) policies
+ALTER TABLE crags ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sectors ENABLE ROW LEVEL SECURITY;
 ALTER TABLE boulders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE boulder_photos ENABLE ROW LEVEL SECURITY;
@@ -274,6 +298,9 @@ ALTER TABLE marathon_rankings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE boulder_beasts_rankings ENABLE ROW LEVEL SECURITY;
 
 -- Create policies for public read access
+CREATE POLICY "Public read access for crags" ON crags
+    FOR SELECT USING (true);
+
 CREATE POLICY "Public read access for sectors" ON sectors
     FOR SELECT USING (true);
 
@@ -314,7 +341,13 @@ CREATE POLICY "Authenticated write access for ascents" ON ascents
 CREATE POLICY "Authenticated write access for participants" ON participants
     FOR ALL USING (auth.role() = 'authenticated');
 
+CREATE POLICY "Authenticated write access for teams" ON teams
+    FOR ALL USING (auth.role() = 'authenticated');
+
 -- Create policies for admin access
+CREATE POLICY "Admin access for all tables" ON crags
+    FOR ALL USING (auth.role() = 'service_role');
+
 CREATE POLICY "Admin access for all tables" ON sectors
     FOR ALL USING (auth.role() = 'service_role');
 

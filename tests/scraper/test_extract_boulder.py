@@ -1,6 +1,10 @@
 """
 Test for boulder data extraction in the CragScraper.
 Tests extracting data from a single boulder including photos and lines.
+
+NOTE: This test has been updated to support the new database schema that includes:
+1. Both name (URL-friendly) and display_name (human-readable) fields for boulders
+2. Sector and crag relationships
 """
 import os
 import json
@@ -41,9 +45,9 @@ async def test_extract_boulder():
     # Create a mock boulder element
     class MockBoulderElement:
 
-        def __init__(self, href, name):
+        def __init__(self, href, display_name):
             self.href = href
-            self.name = name
+            self.display_name = display_name
 
         def __getitem__(self, key):
             if key == 'href':
@@ -52,7 +56,7 @@ async def test_extract_boulder():
 
         def find(self, tag, attrs=None):
             if tag == 'div' and attrs and attrs.get('class') == 'name':
-                return type('obj', (object, ), {'text': self.name})
+                return type('obj', (object, ), {'text': self.display_name})
             return None
 
     # Modify CragScraper's _extract_boulder_data method for testing
@@ -64,9 +68,12 @@ async def test_extract_boulder():
             # Run up to the point of photo extraction
             boulder_url = urljoin("https://27crags.com/",
                                   boulder_element['href'])
-            boulder_name = boulder_element.find('div', attrs={
-                'class': 'name'
-            }).text.strip()
+            boulder_display_name = boulder_element.find('div',
+                                                        attrs={
+                                                            'class': 'name'
+                                                        }).text.strip()
+            # Format the name from display_name
+            boulder_name = boulder_display_name.lower().replace(' ', '-')
             boulder_url_name = boulder_element['href'].split('/')[-1]
 
             # Skip the boulder page fetching and GPS extraction
@@ -78,12 +85,12 @@ async def test_extract_boulder():
             premium_topo_url = urljoin(self.crag_url + "/",
                                        f"premiumtopos/{boulder_url_name}")
             logger.debug(f"Fetching premium topo page for boulder "
-                         f"'{boulder_name}': {premium_topo_url}")
+                         f"'{boulder_display_name}': {premium_topo_url}")
 
             # Use Playwright for JavaScript rendering
             if USE_PLAYWRIGHT and self.playwright_session:
                 logger.info(f"Using Playwright to render premium topo page "
-                            f"for boulder '{boulder_name}'")
+                            f"for boulder '{boulder_display_name}'")
 
                 try:
                     # Make sure the session is initialized
@@ -116,7 +123,7 @@ async def test_extract_boulder():
             img_divs = boulder_premium_page.find_all('div',
                                                      class_='topo-image')
             logger.debug(f"Found {len(img_divs)} topo images for boulder "
-                         f"'{boulder_name}'")
+                         f"'{boulder_display_name}'")
 
             # Process each photo with detailed logging
             boulder_photos = []
@@ -126,7 +133,7 @@ async def test_extract_boulder():
                     img_url = img_div.find('img')['src']
                     logger.debug(
                         f"Processing photo {idx + 1}/{len(img_divs)} for "
-                        f"boulder '{boulder_name}': {img_url}")
+                        f"boulder '{boulder_display_name}': {img_url}")
 
                     # Generate a unique photo ID
                     photo_id = f"{hash(img_url)}_{idx}"
@@ -172,8 +179,8 @@ async def test_extract_boulder():
                                          url=img_url,
                                          lines_data=lines_data)
                     boulder_photos.append(photo)
-                    logger.debug(
-                        f"Added photo {photo_id} to boulder '{boulder_name}'")
+                    logger.debug(f"Added photo {photo_id} to boulder "
+                                 f"'{boulder_display_name}'")
                 except Exception as e:
                     logger.error(f"Error processing photo {idx}: {str(e)}")
 
@@ -184,6 +191,7 @@ async def test_extract_boulder():
 
             # Create and return Boulder object
             return Boulder(name=boulder_name,
+                           display_name=boulder_display_name,
                            url=boulder_url,
                            gps_postgis=gps_postgis,
                            gps_string=gps_string,
@@ -200,14 +208,16 @@ async def test_extract_boulder():
 
         # Create a mock boulder element
         mock_boulder = MockBoulderElement(
-            href="crags/inia-droushia/boulders/arkham", name="Arkham")
+            href="crags/inia-droushia/boulders/arkham", display_name="Arkham")
 
         # Extract boulder data
         boulder = await scraper._extract_boulder_data(mock_boulder, None)
 
         # Assertions to verify the boulder was extracted correctly
         assert boulder is not None, "Boulder extraction failed"
-        assert boulder.name == "Arkham", f"Expected Arkham, got {boulder.name}"
+        assert boulder.display_name == "Arkham", \
+            f"Expected Arkham, got {boulder.display_name}"
+        assert boulder.name == "arkham", f"Expected arkham, got {boulder.name}"
         assert "inia-droushia/boulders/arkham" in boulder.url, \
             f"Unexpected URL: {boulder.url}"
         assert boulder.gps_postgis == "POINT(32.433192 35.055846)", \

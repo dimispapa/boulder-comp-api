@@ -21,11 +21,18 @@ class Route:
     rating: float
     description: str
     line_data: List[RouteLineData] = field(default_factory=list)
+    display_name: str = None  # Will use name if not provided explicitly
+
+    def __post_init__(self):
+        # If display_name is not provided, use name
+        if self.display_name is None:
+            self.display_name = self.name
 
     def to_dict(self):
         """Convert to dictionary for JSON serialization."""
         return {
             'name': self.name,
+            'display_name': self.display_name,
             'url': self.url,
             'grade': self.grade,
             'rating': self.rating,
@@ -65,11 +72,18 @@ class Boulder:
     gps_string: str
     routes: List[Route]
     photos: List[BoulderPhoto] = field(default_factory=list)
+    display_name: str = None  # Will use name if not provided explicitly
+
+    def __post_init__(self):
+        # If display_name is not provided, use name
+        if self.display_name is None:
+            self.display_name = self.name
 
     def to_dict(self):
         """Convert to dictionary for JSON serialization."""
         return {
             'name': self.name,
+            'display_name': self.display_name,
             'url': self.url,
             'gps_postgis': self.gps_postgis,
             'gps_string': self.gps_string,
@@ -87,15 +101,19 @@ class Boulder:
 @dataclass
 class Crag:
     name: str
+    display_name: str
     boulders: List[Boulder]
 
     def to_dict(self):
         """Convert to dictionary for JSON serialization."""
         return {
             'name': self.name,
+            'display_name': self.display_name,
             'boulders': [boulder.to_dict() for boulder in self.boulders]
         }
 
     def __repr__(self) -> str:
         """String representation for debugging and serialization."""
-        return f"Crag(name='{self.name}', boulders_count={len(self.boulders)})"
+        return (f"Crag(name='{self.name}', "
+                f"display_name='{self.display_name}', "
+                f"boulders_count={len(self.boulders)})")

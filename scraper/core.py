@@ -296,7 +296,7 @@ class CragScraper:
         raise Exception(
             f"Failed to fetch {url} after {self.max_retries} attempts")
 
-    async def scrape_crag(self, progress_callback=None) -> Crag:
+    async def scrape_crag(self, progress_callback=None):
         """
         Scrape all boulder data from a crag page.
 
@@ -329,6 +329,29 @@ class CragScraper:
 
                 # Use session throughout
                 soup = await self.get_html(route_list_url, async_session)
+
+                # Get crag display name from the page
+                # (either the h1.cragname element or the text of the anchor
+                # inside it)
+                crag_title_element = soup.find('h1', class_='cragname')
+                if crag_title_element:
+                    # Check h1 title attribute first
+                    if crag_title_element.get('title'):
+                        title = crag_title_element.get('title')
+                        crag_display_name = title.strip()
+                    else:
+                        # Try to find anchor inside the h1
+                        crag_anchor = crag_title_element.find('a')
+                        if crag_anchor:
+                            crag_display_name = crag_anchor.text.strip()
+                        else:
+                            crag_display_name = crag_title_element.text.strip()
+                else:
+                    # Fallback to using the crag name from URL
+                    crag_display_name = self.crag_name.replace('-',
+                                                               ' ').title()
+
+                logger.info(f"Found crag display name: {crag_display_name}")
 
                 # locate anchor elements with "sector-item" class.
                 # These contain the boulder pages,
@@ -402,7 +425,9 @@ class CragScraper:
                     await self.playwright_session.close()
 
                 # Create and return Crag object
-                return Crag(name=self.crag_name, boulders=boulders)
+                return Crag(name=self.crag_name,
+                            display_name=crag_display_name,
+                            boulders=boulders)
 
             except Exception as e:
                 # Cleanup Playwright session if an exception occurs
@@ -439,6 +464,7 @@ class CragScraper:
             boulder_name = boulder_element.find('div', attrs={
                 'class': 'name'
             }).text.strip()
+            boulder_display_name = boulder_name
             boulder_url_name = boulder_element['href'].split('/')[-1]
             # Get the boulder page
             boulder_page = await self.get_html(boulder_url, async_session)
@@ -479,8 +505,8 @@ class CragScraper:
                         f"Processing photo {idx + 1}/{len(img_divs)} for "
                         f"boulder '{boulder_name}': {img_url}")
 
-                    # Generate a unique photo ID
-                    photo_id = f"{hash(img_url)}_{idx}"
+                    # Generate a unique photo ID with positive hash values
+                    photo_id = f"{abs(hash(img_url))}_{idx}"
 
                     # Extract lines data from JavaScript elements
                     lines_data = self._extract_lines_data(img_div, photo_id)
@@ -525,7 +551,8 @@ class CragScraper:
                            gps_postgis=gps_postgis,
                            gps_string=gps_string,
                            routes=routes,
-                           photos=boulder_photos)
+                           photos=boulder_photos,
+                           display_name=boulder_display_name)
 
         except Exception as e:
             logger.error(f"Error extracting boulder data: {str(e)}")
@@ -694,7 +721,8 @@ class CragScraper:
                           grade=grade,
                           rating=rating,
                           description=route_description,
-                          line_data=route_line_data)
+                          line_data=route_line_data,
+                          display_name=route_name)
 
             logger.debug(f"Created route object for '{route_name}' with "
                          f"{len(route_line_data)} line datasets")

@@ -16,9 +16,22 @@ This directory contains tests for the Boulder Competition API project.
   - `test_extract_boulder.py` - Tests for boulder data extraction
   - `conftest.py` - Pytest configuration and fixtures for scraper tests
 
+## Recent Updates
+
+The test suite has been updated to:
+
+1. Support the new database schema that includes:
+   - Crags and sectors relationships
+   - Boulder-sector mappings 
+   - Both name (URL-friendly) and display_name (human-readable) fields for entities
+
+2. Remove Redis dependency:
+   - Tests previously requiring Redis now use mocking
+   - All tests can run in any environment without external dependencies
+
 ## Running Tests
 
-Run all tests:
+Run all tests (all tests should now pass without Redis):
 ```bash
 python -m pytest
 ```
@@ -38,28 +51,18 @@ Run with verbose output:
 python -m pytest -v tests/api/
 ```
 
-Run including Redis-dependent tests:
-```bash
-python -m pytest --override-ini=addopts=
-```
-
-Run only Redis-dependent tests:
-```bash
-python -m pytest -k "redis" --override-ini=addopts=
-```
-
 ## Test Configuration
 
 The `pytest.ini` file in the project root configures pytest with:
 - Test markers to categorize different test types
 - Default path configurations 
-- Exclusion of Redis-dependent tests by default
 
 ### Test Markers
 
 - `api`: Tests for API endpoints
-- `redis`: Tests that require Redis to be running
 - `xfail`: Tests expected to fail
+
+> Note: The `redis` marker is no longer necessary as tests have been refactored to use mocks instead of requiring Redis.
 
 ## Mocking
 
@@ -68,10 +71,13 @@ The test suite uses several mocking strategies:
 1. **Celery Tasks**: Mock implementations prevent actual task execution
    while verifying proper API behavior.
 
-2. **Redis**: Tests with the `redis` marker handle both Redis availability and
-   connection errors gracefully.
+2. **Redis**: All Redis-dependent functionality is now mocked, making the test suite
+   independent of Redis availability.
 
 3. **File System**: File operations use mocks to avoid filesystem dependencies.
+
+4. **Database**: Sector mappings and other database operations are mocked with
+   appropriate test data reflecting the new schema.
 
 ## Debug Files and Cache
 

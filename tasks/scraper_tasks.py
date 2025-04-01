@@ -180,9 +180,13 @@ def save_crag_to_json(crag: Crag, file_path: Path) -> dict:
         crag_dict = {
             "name":
             crag.name,
+            "display_name":
+            crag.display_name,
             "boulders": [{
                 "name":
                 boulder.name,
+                "display_name":
+                boulder.display_name,
                 "url":
                 boulder.url,
                 "gps_postgis":
@@ -197,6 +201,8 @@ def save_crag_to_json(crag: Crag, file_path: Path) -> dict:
                 "routes": [{
                     "name":
                     route.name,
+                    "display_name":
+                    route.display_name,
                     "url":
                     route.url,
                     "grade":
@@ -262,27 +268,88 @@ def store_crag_data_task(self, file_path: str):
         dict: Status and result of the storage operation
     """
     try:
+        logger.info(f"Starting database storage task for file: {file_path}")
+
         # Load crag data from JSON file
+        logger.info(f"Loading crag data from JSON file: {file_path}")
         crag_data = load_crag_from_json(file_path)
 
-        # Update task state
+        # Calculate initial statistics for reporting progress
+        total_boulders = len(crag_data.boulders)
+        total_routes = sum(
+            len(boulder.routes) for boulder in crag_data.boulders)
+
+        logger.info(f"Loaded crag '{crag_data.name}' from file with "
+                    f"{total_boulders} boulders and {total_routes} routes")
+
+        # Update task state with initial statistics
         self.update_state(
             state='PROGRESS',
             meta={
                 'status': 'storing_data',
-                'message': 'Loading data from file and storing to database...'
+                'message': 'Loading data from file and storing to database...',
+                'crag_name': crag_data.name,
+                'total_boulders': total_boulders,
+                'total_routes': total_routes,
+                'progress_percent': 10  # Just started storing
             })
 
         # Store the data using the existing utility function
+        logger.info(f"Starting database storage for crag: {crag_data.name}")
         storage_result = store_crag_data(crag_data, supabase)
 
+        # Update task state with storage completed
+        success = storage_result.get("status") == "success"
+
+        if success:
+            logger.info("Database storage successfully completed for crag: "
+                        f"{crag_data.name}")
+
+            self.update_state(state='SUCCESS',
+                              meta={
+                                  'status': 'completed',
+                                  'message':
+                                  'Database storage completed successfully',
+                                  'file_path': file_path,
+                                  'storage_result': storage_result
+                              })
+        else:
+            logger.error(f"Database storage failed for crag: {crag_data.name}")
+            logger.error(f"Error details: "
+                         f"{storage_result.get('detail', 'Unknown error')}")
+
+            self.update_state(state='FAILURE',
+                              meta={
+                                  'status':
+                                  'error',
+                                  'message':
+                                  'Database storage failed',
+                                  'file_path':
+                                  file_path,
+                                  'error':
+                                  storage_result.get('detail',
+                                                     'Unknown error'),
+                                  'storage_result':
+                                  storage_result
+                              })
+
         return {
-            "status": "success",
+            "status": "success" if success else "error",
             "file_path": file_path,
-            "storage_result": storage_result
+            "crag_name": crag_data.name,
+            "storage_result": storage_result,
+            "total_boulders": total_boulders,
+            "total_routes": total_routes,
+            "stored_boulders": storage_result.get("stored_boulders", 0),
+            "stored_routes": storage_result.get("stored_routes", 0),
+            "stored_photos": storage_result.get("stored_photos", 0),
+            "stored_line_data": storage_result.get("stored_line_data", 0),
+            "skipped_boulders": storage_result.get("skipped_boulders", []),
         }
 
     except Exception as e:
+        logger.error(f"Error in store_crag_data_task: {str(e)}")
+        logger.error(traceback.format_exc())
         return {
             "status": "error",
             "detail": str(e),
@@ -335,7 +402,8 @@ def load_crag_from_json(file_path: str) -> Crag:
                               grade=route_dict["grade"],
                               rating=route_dict["rating"],
                               description=route_dict["description"],
-                              line_data=line_data)
+                              line_data=line_data,
+                              display_name=route_dict.get("display_name"))
                 routes.append(route)
 
             # Create Boulder object with routes and photos
@@ -344,11 +412,15 @@ def load_crag_from_json(file_path: str) -> Crag:
                               gps_postgis=boulder_dict["gps_postgis"],
                               gps_string=boulder_dict["gps_string"],
                               routes=routes,
-                              photos=photos)
+                              photos=photos,
+                              display_name=boulder_dict.get("display_name"))
             boulders.append(boulder)
 
         # Create and return Crag object
-        return Crag(name=crag_dict["name"], boulders=boulders)
+        display_name = crag_dict.get("display_name", crag_dict["name"])
+        return Crag(name=crag_dict["name"],
+                    display_name=display_name,
+                    boulders=boulders)
 
     except Exception as e:
         logger.error(f"Error loading crag data from JSON: {str(e)}")
