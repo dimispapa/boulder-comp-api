@@ -9,6 +9,7 @@ API service for the Bouldering Festival Competition app, providing score calcula
 - **27crags Scraping**: Scrape boulder data from 27crags to update competition data.
 - **Background Task Processing**: Using Celery for asynchronous task execution.
 - **Supabase Integration**: Connect to the main app's Supabase database.
+- **Media Management**: Cloudinary-based image hosting with optimization and access control.
 
 ## Tech Stack
 
@@ -29,8 +30,10 @@ boulder-comp-api/
 ├── tasks/                # Celery background tasks
 ├── utils/                # Common utilities and helpers
 ├── tests/                # Unit and integration tests
+│   └── testing.md        # Testing documentation and guidelines
 ├── supabase/             # Supabase configuration and migrations
 ├── docs/                 # Documentation and diagrams
+│   └── media_storage.md  # Media storage implementation details
 ├── main.py               # FastAPI app entry point
 ├── .env                  # Environment variables (not committed)
 ├── docker-compose.yml    # Docker Compose configuration
@@ -264,14 +267,26 @@ Common errors without `--build`:
 
 ### 🧗 Bouldering Data Tables
 
+#### `crags`
+
+| Field         | Type         | Notes                                |
+|---------------|--------------|--------------------------------------|
+| `id`          | UUID / PK    | Unique crag ID                       |
+| `name`        | text         | Unique crag name                     |
+| `display_name`| text         | Formatted display name               |
+| `description` | text / null  | Optional crag description            |
+| `created_at`  | timestamp    | When added                           |
+| `updated_at`  | timestamp    | Last updated                         |
+
 #### `sectors`
 
 | Field         | Type         | Notes                                |
 |---------------|--------------|--------------------------------------|
 | `id`          | UUID / PK    | Unique sector ID                     |
 | `name`        | text         | Unique sector name                   |
+| `display_name`| text         | Formatted display name               |
+| `crag_id`     | FK → crags.id| Reference to parent crag             |
 | `description` | text / null  | Optional sector description          |
-| `gps_coords`  | text / point | Sector's geographical coordinates     |
 | `created_at`  | timestamp    | When added                           |
 | `updated_at`  | timestamp    | Last updated                         |
 
@@ -281,6 +296,7 @@ Common errors without `--build`:
 |---------------|----------------|--------------------------------------|
 | `id`          | UUID / PK      | Unique boulder ID                    |
 | `name`        | text           | Boulder name                         |
+| `display_name`| text           | Formatted display name               |
 | `url`         | text           | 27crags URL                          |
 | `sector_id`   | FK → sectors.id| Reference to sector                  |
 | `gps_postgis`  | GEOGRAPHY(POINT)| PostGIS formatted coordinates (POINT(lon lat))|
@@ -294,9 +310,12 @@ Common errors without `--build`:
 |--------------|--------------|--------------------------------------------|
 | `id`         | UUID / PK    | Unique photo ID                            |
 | `boulder_id` | FK → boulders.id | Linked boulder                        |
-| `url`        | text         | Hosted image URL (e.g. Supabase Storage)     |
-| `caption`    | text / null  | Optional description                       |
-| `order`      | integer      | Sort order (e.g. 1 = cover image)            |
+| `url`        | text         | Original photo URL                         |
+| `photo_id`   | text         | Photo identifier                           |
+| `storage_url`| text / null  | URL in Supabase Storage after upload       |
+| `lines_data` | JSONB / null | Optional route line data                   |
+| `created_at` | timestamp    | When added                                 |
+| `updated_at` | timestamp    | Last updated                               |
 
 #### `routes`
 
@@ -305,9 +324,12 @@ Common errors without `--build`:
 | `id`         | UUID / PK    | Unique route ID                          |
 | `boulder_id` | FK → boulders.id | Linked boulder                      |
 | `name`       | text         | Route name                               |
+| `display_name`| text        | Formatted display name                   |
 | `url`        | text         | Route URL on 27crags                     |
 | `grade`      | text         | e.g. '6A+', '7B'                         |
 | `rating`     | float / null | Route rating                             |
+| `description`| text / null  | Route description                        |
+| `line_data`  | JSONB / null | Route line data                          |
 | `created_at` | timestamp    | When added                               |
 | `updated_at` | timestamp    | Last updated                             |
 
@@ -317,6 +339,7 @@ Common errors without `--build`:
 |---------------|----------------|-------------------------------------|
 | `id`          | UUID / PK      | Unique mapping ID                   |
 | `boulder_url` | text           | URL of boulder on 27crags           |
+| `sector_name` | text           | Name of the sector                  |
 | `sector_id`   | FK → sectors.id| Reference to sector                 |
 | `created_at`  | timestamp      | When added                          |
 | `updated_at`  | timestamp      | Last updated                        |
@@ -327,16 +350,20 @@ Common errors without `--build`:
 
 #### `competitions`
 
-| Field         | Type         | Notes                                                         |
-|---------------|--------------|---------------------------------------------------------------|
-| `id`          | UUID / PK    | Unique competition ID                                         |
-| `name`        | text         | Name of the competition (e.g. "May 2025 Club Comp")             |
-| `category`    | text         | Categories hosted (e.g. "marathon,boulder beasts")              |
-| `start_date`  | date         | Competition start date                                          |
-| `end_date`    | date         | Competition end date                                            |
-| `status`      | text         | e.g., "upcoming", "ongoing", "completed"                        |
-| `description` | text         | Details about the competition                                   |
-| `venue`       | text         | Location/venue of the event                                     |
+| Field         | Type           | Notes                                                       |
+|---------------|----------------|-------------------------------------------------------------|
+| `id`          | UUID / PK      | Unique competition ID                                       |
+| `name`        | text           | Name of the competition (e.g. "May 2025 Club Comp")         |
+| `crag_id`     | FK → crags.id  | Crag where the competition takes place                      |
+| `display_name`| text           | Formatted display name                                      |
+| `category`    | text[]         | Categories hosted (e.g. "marathon,boulder beasts")          |
+| `start_date`  | date           | Competition start date                                      |
+| `end_date`    | date           | Competition end date                                        |
+| `status`      | enum           | "ongoing" or "completed"                                    |
+| `description` | text / null    | Details about the competition                               |
+| `venue`       | text / null    | Location/venue of the event                                 |
+| `created_at`  | timestamp      | When added                                                  |
+| `updated_at`  | timestamp      | Last updated                                                |
 
 #### `teams`
 
@@ -477,6 +504,24 @@ Common errors without `--build`:
 - Follow PEP8 style guidelines
 - Write tests for new features
 - Add documentation for API endpoints
+
+## Testing
+
+For detailed information about testing, see [tests/testing.md](tests/testing.md) which includes:
+- Test structure and organization
+- Instructions for running tests
+- Mocking strategies
+- Recent updates to test suite
+
+## Media Storage
+
+The API implements a secure media storage solution with the following features:
+- Cloudinary-based image hosting for both boulder and competition photos
+- Hierarchical organization by crag/sector and competition
+- Advanced image optimization and content delivery
+- Access control for user-submitted competition photos 
+
+For complete details, see [docs/media_storage.md](docs/media_storage.md).
 
 ## Deployment
 

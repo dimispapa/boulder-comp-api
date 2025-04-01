@@ -29,7 +29,10 @@ var/
 *.egg-info/
 .installed.cfg
 *.egg
+
+# Testing
 .pytest_cache/
+pytest_cache/
 .coverage
 htmlcov/
 .venv/
@@ -62,3 +65,11 @@ docs/
 # Test files
 tests/
 test_*.py 
+
+# Project data files
+data/
+*data/
+
+# Test debug files
+tests/scraper/debug/
+*.test_data/

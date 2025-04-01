@@ -31,6 +31,11 @@ services:
       - USER_AGENT_4=${USER_AGENT_4}
       - USER_AGENT_5=${USER_AGENT_5}
       - TZ=${TZ:-UTC}
+      - USE_PLAYWRIGHT=${USE_PLAYWRIGHT:-true}
+      - USE_PLAYWRIGHT_LOGIN=${USE_PLAYWRIGHT_LOGIN:-true}
+      - CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}
+      - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY}
+      - CLOUDINARY_API_SECRET=${CLOUDINARY_API_SECRET}
     depends_on:
       - redis
     restart: unless-stopped
@@ -72,6 +77,11 @@ services:
       - USER_AGENT_4=${USER_AGENT_4}
       - USER_AGENT_5=${USER_AGENT_5}
       - TZ=${TZ:-UTC}
+      - USE_PLAYWRIGHT=${USE_PLAYWRIGHT:-true}
+      - USE_PLAYWRIGHT_LOGIN=${USE_PLAYWRIGHT_LOGIN:-true}
+      - CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}
+      - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY}
+      - CLOUDINARY_API_SECRET=${CLOUDINARY_API_SECRET}
     depends_on:
       - redis
     restart: unless-stopped

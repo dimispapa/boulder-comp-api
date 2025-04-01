@@ -3,9 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 import os
 from dotenv import load_dotenv
 import pytz
+from celery.signals import setup_logging
 
 # Import routers
-from api.routes import scraper, scoring
+from api.routes import scraper, scoring, media
 
 # Set default timezone for datetime operations
 pytz.timezone('UTC')
@@ -36,9 +37,16 @@ app.add_middleware(
 app.include_router(scraper.router,
                    prefix=f"{api_prefix}/scraper",
                    tags=["scraper"])
+app.include_router(media.router, prefix=f"{api_prefix}/media", tags=["media"])
 app.include_router(scoring.router,
                    prefix=f"{api_prefix}/scoring",
                    tags=["scoring"])
+
+
+@setup_logging.connect
+def config_loggers(*args, **kwargs):
+    # This prevents Celery from configuring its own loggers
+    pass
 
 
 @app.get("/", tags=["root"])

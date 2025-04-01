@@ -135,6 +135,53 @@ def handle_successful_task(task: AsyncResult,
         else:
             # For success statuses, include full result
             result["result"] = task_result
+
+            # Add crag name if available
+            if "crag_name" in task_result:
+                result["crag_name"] = task_result["crag_name"]
+
+            # Add detailed reconciliation info for storage tasks
+            if result.get("task_type") == TASK_TYPE_STORE:
+                # Add reconciliation data for easier tracking
+                result["reconciliation"] = {
+                    "total_boulders":
+                    task_result.get("total_boulders", 0),
+                    "total_routes":
+                    task_result.get("total_routes", 0),
+                    "stored_boulders":
+                    task_result.get("stored_boulders", 0),
+                    "stored_routes":
+                    task_result.get("stored_routes", 0),
+                    "stored_photos":
+                    task_result.get("stored_photos", 0),
+                    "stored_line_data":
+                    task_result.get("stored_line_data", 0),
+                    "skipped_boulders_count":
+                    len(task_result.get("skipped_boulders", [])),
+                }
+
+                # Calculate success rates if available
+                if (task_result.get("total_boulders", 0) > 0
+                        and "boulder_success_rate" not in task_result):
+                    stored = task_result.get("stored_boulders", 0)
+                    total = task_result.get("total_boulders", 0)
+                    result["reconciliation"]["boulder_success_rate"] = round(
+                        (stored / total * 100), 2)
+                else:
+                    result["reconciliation"][
+                        "boulder_success_rate"] = task_result.get(
+                            "boulder_success_rate", 0)
+
+                if (task_result.get("total_routes", 0) > 0
+                        and "route_success_rate" not in task_result):
+                    stored = task_result.get("stored_routes", 0)
+                    total = task_result.get("total_routes", 0)
+                    result["reconciliation"]["route_success_rate"] = round(
+                        (stored / total * 100), 2)
+                else:
+                    result["reconciliation"][
+                        "route_success_rate"] = task_result.get(
+                            "route_success_rate", 0)
     else:
         # Default status if none in result
         result["status"] = STATUS_COMPLETED

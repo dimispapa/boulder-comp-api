@@ -1,22 +1,43 @@
-from dataclasses import dataclass
-from typing import List
+from dataclasses import dataclass, field
+from typing import List, Dict, Any
+
+
+@dataclass
+class RouteLineData:
+    photo_id: str  # Reference to the specific photo this line appears on
+    line_points: List[Dict[str, float]]  # The actual line coordinates
+
+    def to_dict(self):
+        """Convert to dictionary for JSON serialization."""
+        return {'photo_id': self.photo_id, 'line_points': self.line_points}
 
 
 @dataclass
 class Route:
+    """Class representing a climbing route."""
     name: str
     url: str
     grade: str
-    rating: str
+    rating: float
     description: str
+    line_data: List[RouteLineData] = field(default_factory=list)
+    display_name: str = None  # Will use name if not provided explicitly
 
-    def to_supabase_dict(self):
+    def __post_init__(self):
+        # If display_name is not provided, use name
+        if self.display_name is None:
+            self.display_name = self.name
+
+    def to_dict(self):
+        """Convert to dictionary for JSON serialization."""
         return {
             'name': self.name,
+            'display_name': self.display_name,
             'url': self.url,
             'grade': self.grade,
             'rating': self.rating,
             'description': self.description,
+            'line_data': [ld.to_dict() for ld in self.line_data]
         }
 
     def __repr__(self) -> str:
@@ -27,19 +48,47 @@ class Route:
 
 
 @dataclass
+class BoulderPhoto:
+    id: str  # Unique identifier for the photo
+    url: str
+    lines_data: Dict[str,
+                     Any]  # Raw lines data from the page (includes all routes)
+
+    def __init__(self, id: str, url: str, lines_data: dict = None):
+        self.id = id
+        self.url = url
+        self.lines_data = lines_data or {}  # Default to empty dict if None
+
+    def to_dict(self):
+        """Convert to dictionary for JSON serialization."""
+        return {'id': self.id, 'url': self.url, 'lines_data': self.lines_data}
+
+
+@dataclass
 class Boulder:
     name: str
     url: str
     gps_postgis: str
     gps_string: str
     routes: List[Route]
+    photos: List[BoulderPhoto] = field(default_factory=list)
+    display_name: str = None  # Will use name if not provided explicitly
 
-    def to_supabase_dict(self):
+    def __post_init__(self):
+        # If display_name is not provided, use name
+        if self.display_name is None:
+            self.display_name = self.name
+
+    def to_dict(self):
+        """Convert to dictionary for JSON serialization."""
         return {
             'name': self.name,
+            'display_name': self.display_name,
             'url': self.url,
             'gps_postgis': self.gps_postgis,
             'gps_string': self.gps_string,
+            'routes': [route.to_dict() for route in self.routes],
+            'photos': [photo.to_dict() for photo in self.photos]
         }
 
     def __repr__(self) -> str:
@@ -52,13 +101,19 @@ class Boulder:
 @dataclass
 class Crag:
     name: str
+    display_name: str
     boulders: List[Boulder]
 
-    def to_supabase_dict(self):
+    def to_dict(self):
+        """Convert to dictionary for JSON serialization."""
         return {
             'name': self.name,
+            'display_name': self.display_name,
+            'boulders': [boulder.to_dict() for boulder in self.boulders]
         }
 
     def __repr__(self) -> str:
         """String representation for debugging and serialization."""
-        return f"Crag(name='{self.name}', boulders_count={len(self.boulders)})"
+        return (f"Crag(name='{self.name}', "
+                f"display_name='{self.display_name}', "
+                f"boulders_count={len(self.boulders)})")
