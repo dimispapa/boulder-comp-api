@@ -222,6 +222,7 @@ CREATE TABLE teams (
     name TEXT NOT NULL,
     captain_id UUID,
     category TEXT NOT NULL DEFAULT 'marathon',
+    team_size INTEGER,
     paid BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -242,6 +243,48 @@ CREATE TABLE participants (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- Create function to update team size based on participant count
+CREATE OR REPLACE FUNCTION update_team_size()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- If a participant was added or removed from a team
+    IF (TG_OP = 'INSERT' OR TG_OP = 'UPDATE') AND NEW.team_id IS NOT NULL THEN
+        -- Update the team size for the team this participant was added to
+        UPDATE teams 
+        SET team_size = (
+            SELECT COUNT(*) 
+            FROM participants 
+            WHERE team_id = NEW.team_id
+        ),
+        updated_at = NOW()
+        WHERE id = NEW.team_id;
+    END IF;
+    
+    -- If a participant was removed or changed teams
+    IF (TG_OP = 'UPDATE' OR TG_OP = 'DELETE') AND 
+       (TG_OP = 'DELETE' OR OLD.team_id IS DISTINCT FROM NEW.team_id) AND
+       OLD.team_id IS NOT NULL THEN
+        -- Update the team size for the team this participant was removed from
+        UPDATE teams 
+        SET team_size = (
+            SELECT COUNT(*) 
+            FROM participants 
+            WHERE team_id = OLD.team_id
+        ),
+        updated_at = NOW()
+        WHERE id = OLD.team_id;
+    END IF;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create trigger to run the function
+CREATE TRIGGER update_team_size_trigger
+AFTER INSERT OR UPDATE OR DELETE ON participants
+FOR EACH ROW
+EXECUTE FUNCTION update_team_size();
 
 -- Create ascents table
 CREATE TABLE ascents (
@@ -314,6 +357,7 @@ CREATE TABLE boulder_beasts_rankings (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     competition_id UUID NOT NULL REFERENCES competitions(id) ON DELETE CASCADE,
     participant_id UUID NOT NULL REFERENCES participants(id) ON DELETE CASCADE,
+    team_id UUID REFERENCES teams(id) ON DELETE CASCADE,
     top_grades TEXT[] NOT NULL,
     total_score FLOAT NOT NULL,
     rank INTEGER NOT NULL,

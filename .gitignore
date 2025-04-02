@@ -58,3 +58,7 @@ data/
 # Test debug files
 tests/scraper/debug/
 *.test_data/
+
+# Python pip installer
+get_pip.py
+get-pip.py

@@ -27,6 +27,7 @@ boulder-comp-api/
 ├── api/                  # FastAPI endpoints and route handlers
 ├── scraper/              # 27crags scraping logic
 ├── scoring/              # Score calculation logic
+│   ├── scoring.md        # Scoring system documentation and calculation details
 ├── tasks/                # Celery background tasks
 ├── utils/                # Common utilities and helpers
 ├── tests/                # Unit and integration tests
@@ -495,9 +496,11 @@ Common errors without `--build`:
 
 ### Scoring API
 
-- `POST /api/scoring/calculate` - Calculate scores for a competition
-- `GET /api/scoring/task/{task_id}` - Check status of a calculation task
-- `GET /api/scoring/leaderboard/{competition_id}` - Get competition leaderboard
+- `POST /api/scoring/calculate/{comp_id}` - Trigger score calculation for a competition
+- `GET /api/scoring/status/{task_id}` - Check status of a calculation task
+- `GET /api/scoring/rankings/{comp_id}` - Get raw ranking data for a competition
+- `GET /api/scoring/leaderboard/{competition_id}` - Get formatted leaderboard data
+- `GET /api/scoring/leaderboard-with-models/{competition_id}` - Get strongly typed leaderboard data
 
 ## Development
 
@@ -522,6 +525,16 @@ The API implements a secure media storage solution with the following features:
 - Access control for user-submitted competition photos 
 
 For complete details, see [docs/media_storage.md](docs/media_storage.md).
+
+## Scoring System
+
+The API implements a comprehensive scoring system with the following features:
+- Support for both team-based Marathon and individual Boulder Beasts categories
+- Component-based scoring with various bonuses and normalizations
+- Detailed calculation storage for auditing and transparency
+- Leaderboard generation with component breakdowns
+
+For complete details about the scoring system, calculations, and components, see [scoring/scoring.md](scoring/scoring.md).
 
 ## Deployment
 
@@ -684,7 +697,3 @@ This API is designed to be deployed using Docker:
 - **Volumes for Persistent Data**: Use Docker volumes for any data that needs to persist between container restarts
 - **Network Security**: Configure container networks to only expose necessary ports
 - **Resource Limits**: Set memory and CPU limits for containers in production environments
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.

@@ -1,0 +1,123 @@
+digraph ScoringProcess {
+    // Graph styling
+    graph [rankdir=TB, fontname="Arial", splines=ortho];
+    node [shape=box, style=filled, color="#4285F4", fillcolor="#E1F5FE", fontname="Arial", fontcolor="#000000", margin="0.3,0.1"];
+    edge [color="#4285F4", fontname="Arial", fontcolor="#000000"];
+
+    // Main process nodes
+    Start [label="Start Scoring Process", shape=oval, color="#43A047", fillcolor="#E8F5E9"];
+    GetCompetition [label="Get Competition Details"];
+    GetAscents [label="Retrieve All Competition Ascents"];
+    SaveRawData [label="Save Raw Data (JSON)"];
+    CheckCategories [label="Check Enabled Categories", shape=diamond, color="#FFA000", fillcolor="#FFF8E1"];
+    
+    // Marathon calculation nodes
+    MarathonStart [label="Marathon Calculation Start"];
+    GroupTeamAscents [label="Group Ascents by Team"];
+    CalculateBase [label="Calculate Base Scores"];
+    CalculateVolume [label="Calculate Volume Bonus"];
+    CalculateUnique [label="Calculate Unique Ascent Score"];
+    CalculateTeamBonus [label="Calculate Team Ascent Bonus"];
+    CalculateGradeBonus [label="Calculate Master Grade Bonus"];
+    NormalizeScores [label="Normalize Team Scores"];
+    RankTeams [label="Rank Teams"];
+    SaveMarathonDetails [label="Save Marathon Calculation Details"];
+    
+    // Boulder Beasts calculation nodes
+    BoulderStart [label="Boulder Beasts Calculation Start"];
+    GroupIndividualAscents [label="Group Ascents by Participant"];
+    SelectTopGrades [label="Select Top 5 Grades"];
+    CalculateIndividualScores [label="Calculate Individual Scores"];
+    RankParticipants [label="Rank Participants"];
+    SaveBoulderDetails [label="Save Boulder Beasts Calculation Details"];
+    
+    // Final processing nodes
+    CombineResults [label="Combine Results"];
+    SaveFinalRankings [label="Save Final Rankings (JSON)"];
+    StoreInDatabase [label="Store Results in Database"];
+    CreateLeaderboards [label="Create Leaderboards"];
+    End [label="End Scoring Process", shape=oval, color="#43A047", fillcolor="#E8F5E9"];
+    
+    // Error handling node
+    ErrorHandler [label="Error Handling & Logging", shape=hexagon, color="#D32F2F", fillcolor="#FFEBEE"];
+    
+    // Process flow edges
+    Start -> GetCompetition;
+    GetCompetition -> GetAscents;
+    GetAscents -> SaveRawData;
+    SaveRawData -> CheckCategories;
+    
+    // Marathon path
+    CheckCategories -> MarathonStart [label="Marathon Enabled"];
+    MarathonStart -> GroupTeamAscents;
+    GroupTeamAscents -> CalculateBase;
+    CalculateBase -> CalculateVolume;
+    CalculateVolume -> CalculateUnique;
+    CalculateUnique -> CalculateTeamBonus;
+    CalculateTeamBonus -> CalculateGradeBonus;
+    CalculateGradeBonus -> NormalizeScores;
+    NormalizeScores -> RankTeams;
+    RankTeams -> SaveMarathonDetails;
+    
+    // Boulder Beasts path
+    CheckCategories -> BoulderStart [label="Boulder Beasts Enabled"];
+    BoulderStart -> GroupIndividualAscents;
+    GroupIndividualAscents -> SelectTopGrades;
+    SelectTopGrades -> CalculateIndividualScores;
+    CalculateIndividualScores -> RankParticipants;
+    RankParticipants -> SaveBoulderDetails;
+    
+    // Join paths
+    SaveMarathonDetails -> CombineResults;
+    SaveBoulderDetails -> CombineResults;
+    
+    // Final processing
+    CombineResults -> SaveFinalRankings;
+    SaveFinalRankings -> StoreInDatabase;
+    StoreInDatabase -> CreateLeaderboards;
+    CreateLeaderboards -> End;
+    
+    // Error handling edges
+    GetCompetition -> ErrorHandler [style=dashed, color="#D32F2F"];
+    GetAscents -> ErrorHandler [style=dashed, color="#D32F2F"];
+    SaveRawData -> ErrorHandler [style=dashed, color="#D32F2F"];
+    StoreInDatabase -> ErrorHandler [style=dashed, color="#D32F2F"];
+    ErrorHandler -> End [style=dashed, color="#D32F2F"];
+    
+    // Data Storage subgraph
+    subgraph cluster_storage {
+        label="Data Storage";
+        style=filled;
+        color="#ECEFF1";
+        fillcolor="#F5F5F5";
+        
+        Database [label="Supabase Database", shape=cylinder, color="#3949AB", fillcolor="#E8EAF6"];
+        JSONFiles [label="JSON Files\n(Audit & Debugging)", shape=note, color="#3949AB", fillcolor="#E8EAF6"];
+    }
+    
+    // Add edges to storage
+    SaveRawData -> JSONFiles [style=dotted];
+    SaveMarathonDetails -> JSONFiles [style=dotted];
+    SaveBoulderDetails -> JSONFiles [style=dotted];
+    SaveFinalRankings -> JSONFiles [style=dotted];
+    StoreInDatabase -> Database [style=dotted];
+    
+    // API Access subgraph
+    subgraph cluster_api {
+        label="API Endpoints";
+        style=filled;
+        color="#ECEFF1";
+        fillcolor="#F5F5F5";
+        
+        CalculateAPI [label="/scoring/calculate/{comp_id}", shape=component, color="#1976D2", fillcolor="#E3F2FD"];
+        StatusAPI [label="/scoring/status/{task_id}", shape=component, color="#1976D2", fillcolor="#E3F2FD"];
+        RankingsAPI [label="/scoring/rankings/{comp_id}", shape=component, color="#1976D2", fillcolor="#E3F2FD"];
+        LeaderboardAPI [label="/scoring/leaderboard/{competition_id}", shape=component, color="#1976D2", fillcolor="#E3F2FD"];
+    }
+    
+    // Add edges to API
+    Start -> CalculateAPI [style=dotted, dir=back];
+    End -> StatusAPI [style=dotted];
+    Database -> RankingsAPI [style=dotted];
+    Database -> LeaderboardAPI [style=dotted];
+} 

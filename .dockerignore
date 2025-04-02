@@ -29,6 +29,8 @@ var/
 *.egg-info/
 .installed.cfg
 *.egg
+get_pip.py
+get-pip.py
 
 # Testing
 .pytest_cache/

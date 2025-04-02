@@ -1,0 +1,48 @@
+digraph ScoringProcessSimple {
+    // Graph styling
+    graph [rankdir=TB, fontname="Arial"];
+    node [shape=box, style=filled, fillcolor=lightblue, fontname="Arial"];
+    edge [fontname="Arial"];
+
+    // Main process nodes
+    Start [label="Start Scoring Process", shape=oval, fillcolor=lightgreen];
+    GetData [label="Retrieve Competition\nand Ascent Data"];
+    SaveRaw [label="Save Raw Data"];
+    
+    // Category calculation nodes
+    CheckCategories [label="Check Enabled Categories", shape=diamond, fillcolor=lightyellow];
+    CalcMarathon [label="Calculate Marathon Scores"];
+    CalcBoulder [label="Calculate Boulder Beasts Scores"];
+    
+    // Marathon calculation details
+    MarathonDetails [label="Marathon Calculation:\n- Base Score\n- Volume Bonus\n- Unique Ascent Score\n- Team Ascent Bonus\n- Master Grade Bonus\n- Normalization", shape=note, fillcolor=lightcyan];
+    
+    // Boulder Beasts calculation details
+    BoulderDetails [label="Boulder Beasts Calculation:\n- Top 5 Grades\n- Individual Scoring\n- Bonus Points", shape=note, fillcolor=lightcyan];
+    
+    // Final nodes
+    CombineResults [label="Combine Results"];
+    SaveResults [label="Save Final Rankings"];
+    StoreDB [label="Store in Database"];
+    APIAccess [label="API Access to Leaderboards"];
+    End [label="End Process", shape=oval, fillcolor=lightgreen];
+
+    // Process flow
+    Start -> GetData;
+    GetData -> SaveRaw;
+    SaveRaw -> CheckCategories;
+    
+    CheckCategories -> CalcMarathon [label="Marathon"];
+    CheckCategories -> CalcBoulder [label="Boulder Beasts"];
+    
+    CalcMarathon -> MarathonDetails [style=dashed];
+    CalcBoulder -> BoulderDetails [style=dashed];
+    
+    CalcMarathon -> CombineResults;
+    CalcBoulder -> CombineResults;
+    
+    CombineResults -> SaveResults;
+    SaveResults -> StoreDB;
+    StoreDB -> APIAccess;
+    APIAccess -> End;
+} 
