@@ -27,7 +27,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "postgis";
 
 -- Create enum types
-CREATE TYPE competition_status AS ENUM ('ongoing', 'completed');
+CREATE TYPE competition_status AS ENUM ('upcoming', 'ongoing', 'completed');
 CREATE TYPE competition_category AS ENUM ('marathon', 'boulder_beasts');
 
 -- Create crags table
@@ -148,15 +148,72 @@ CREATE TABLE competitions (
     name TEXT NOT NULL UNIQUE,
     crag_id UUID NOT NULL REFERENCES crags(id) ON DELETE SET NULL,
     display_name TEXT NOT NULL UNIQUE,
-    category TEXT[] NOT NULL,
+    categories competition_category[] NOT NULL,
     start_date DATE NOT NULL,
     end_date DATE NOT NULL,
     status competition_status NOT NULL DEFAULT 'ongoing',
     description TEXT,
     venue TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    CONSTRAINT categories_not_empty CHECK (array_length(categories, 1) > 0)
 );
+
+-- Add documentation comments for the competitions table
+COMMENT ON COLUMN competitions.categories IS 'Competition categories: ["marathon"], ["boulder_beasts"], or ["marathon", "boulder_beasts"]. Must select at least one.';
+COMMENT ON CONSTRAINT categories_not_empty ON competitions IS 'Ensures at least one category is selected';
+COMMENT ON COLUMN competitions.status IS 'Competition status: "upcoming", "ongoing", or "completed". Automatically updated based on dates, except "completed" which must be set manually.';
+
+-- Create function to update competition status based on dates
+CREATE OR REPLACE FUNCTION update_competition_status()
+RETURNS TRIGGER AS $$
+DECLARE
+    current_date DATE := CURRENT_DATE;
+BEGIN
+    -- If this is an UPDATE operation and status is already 'completed', don't change it
+    IF TG_OP = 'UPDATE' AND OLD.status = 'completed' THEN
+        RETURN NEW;
+    END IF;
+    
+    -- If the user has explicitly set status to 'completed' in this operation, respect that
+    IF NEW.status = 'completed' THEN
+        RETURN NEW;
+    END IF;
+    
+    -- Set status based on current date relative to start/end dates
+    IF current_date < NEW.start_date THEN
+        NEW.status := 'upcoming';
+    ELSIF current_date >= NEW.start_date AND current_date <= NEW.end_date THEN
+        NEW.status := 'ongoing';
+    END IF;
+    
+    -- Note: We don't automatically set to 'completed'
+    -- This must be done manually
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create trigger to run the function
+CREATE TRIGGER update_competition_status_trigger
+BEFORE INSERT OR UPDATE ON competitions
+FOR EACH ROW
+EXECUTE FUNCTION update_competition_status();
+
+-- Example of inserting a competition with multiple categories
+-- This demonstrates the proper syntax for the categories array
+-- COMMENT OUT BEFORE RUNNING IN PRODUCTION
+-- INSERT INTO competitions (name, crag_id, display_name, categories, start_date, end_date, description, venue)
+-- VALUES (
+--     'example-competition',
+--     (SELECT id FROM crags WHERE name = 'inia-droushia'),
+--     'Example Competition',
+--     ["marathon", "boulder_beasts"],
+--     '2025-05-01',
+--     '2025-05-15',
+--     'This is an example competition with multiple categories',
+--     'Inia Droushia'
+-- );
 
 -- Create teams table
 CREATE TABLE teams (
@@ -348,6 +405,12 @@ ALTER TABLE scored_ascents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE marathon_rankings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE boulder_beasts_rankings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE competition_photos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE boulder_sector_mappings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE base_points ENABLE ROW LEVEL SECURITY;
+ALTER TABLE volume_bonus ENABLE ROW LEVEL SECURITY;
+ALTER TABLE unique_ascent_bonus ENABLE ROW LEVEL SECURITY;
+ALTER TABLE team_ascent_bonus ENABLE ROW LEVEL SECURITY;
+ALTER TABLE master_grade_bonus ENABLE ROW LEVEL SECURITY;
 
 -- Create policies for public read access
 CREATE POLICY "Public read access for crags" ON crags
