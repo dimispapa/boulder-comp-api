@@ -6,6 +6,7 @@ from typing import Optional, Dict, Any
 from datetime import datetime
 from uuid import UUID, uuid4
 import json
+from sqlalchemy.dialects.postgresql import JSONB
 
 
 class BasePoints(SQLModel, table=True):
@@ -93,7 +94,7 @@ class BoulderBeastsRanking(SQLModel, table=True):
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     participant_id: UUID = Field(foreign_key="participants.id")
-    top_grades: Dict[str, Any] = Field(sa_column_kwargs={"type": "JSONB"})
+    top_grades: Optional[str] = Field(default=None, sa_type=JSONB)
     total_score: float
     rank: int
 
@@ -101,14 +102,14 @@ class BoulderBeastsRanking(SQLModel, table=True):
     @property
     def top_grades_dict(self) -> Dict[str, Any]:
         """Get top_grades as a Python dictionary."""
-        if isinstance(self.top_grades, str):
-            return json.loads(self.top_grades or "{}")
-        return self.top_grades or {}
+        if not self.top_grades:
+            return {}
+        return json.loads(self.top_grades)
 
     @top_grades_dict.setter
     def top_grades_dict(self, value: Dict[str, Any]):
         """Set top_grades from a Python dictionary."""
-        if value is None:
+        if not value:
             self.top_grades = None
         else:
-            self.top_grades = value
+            self.top_grades = json.dumps(value)

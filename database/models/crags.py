@@ -6,6 +6,7 @@ from typing import Optional, List, Dict, Any, TYPE_CHECKING
 from datetime import datetime, UTC
 from uuid import UUID, uuid4
 import json
+from sqlalchemy.dialects.postgresql import JSONB
 
 # Type hints for forward references
 if TYPE_CHECKING:
@@ -75,8 +76,7 @@ class BoulderPhoto(SQLModel, table=True):
     url: str
     photo_id: str  # External ID of the photo
     storage_url: Optional[str] = None  # URL to stored image
-    lines_data: Optional[str] = Field(default=None,
-                                      sa_column_kwargs={"type": "JSONB"})
+    lines_data: Optional[str] = Field(default=None, sa_type=JSONB)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
@@ -113,8 +113,7 @@ class Route(SQLModel, table=True):
     grade: str
     rating: Optional[float] = None
     description: Optional[str] = None
-    line_data: Optional[str] = Field(default=None,
-                                     sa_column_kwargs={"type": "JSONB"})
+    line_data: Optional[str] = Field(default=None, sa_type=JSONB)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
