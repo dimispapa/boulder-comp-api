@@ -8,7 +8,6 @@ import uuid
 from pathlib import Path
 from sqlmodel import Session
 from utils.loggers import logger
-from database.base import get_db_session
 from database.crud.competitions import (get_competition_by_id,
                                         get_ascents_by_competition_id)
 from database.crud.scoring import (get_base_points_by_grade,
@@ -24,20 +23,17 @@ class ScoreCalculator:
     Handles score calculations for both Marathon and Boulder Beasts categories.
     """
 
-    def __init__(self, session: Session = None):
+    def __init__(self, session: Session):
         """
         Initialize the score calculator.
 
         Args:
-            session (Session, optional): SQLModel database session. If None,
-                                         a new session will be created for each
-                                         database operation.
+            session (Session): SQLModel database session.
         """
         self.session = session
         # Create a data directory to store JSON files if it doesn't exist
         self.data_dir = Path("data/scoring_results")
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.own_session = session is None
 
     def _save_json_data(self, data: Any, filename: str) -> str:
         """
@@ -163,83 +159,81 @@ class ScoreCalculator:
 
     async def _get_competition(self, comp_id: str) -> Optional[Dict[str, Any]]:
         """Get competition details using SQLModel."""
-        with get_db_session() if self.own_session else self.session as session:
-            competition = get_competition_by_id(session, comp_id)
+        competition = get_competition_by_id(self.session, comp_id)
 
-            if not competition:
-                return None
+        if not competition:
+            return None
 
-            # Convert Competition object to dict
-            # for consistency with previous implementation
-            return {
-                "id": str(competition.id),
-                "name": competition.name,
-                "categories": competition.categories_list,
-                "start_date": competition.start_date,
-                "end_date": competition.end_date,
-                "status": competition.status,
-                "crag_id": str(competition.crag_id)
-            }
+        # Convert Competition object to dict
+        # for consistency with previous implementation
+        return {
+            "id": str(competition.id),
+            "name": competition.name,
+            "categories": competition.categories_list,
+            "start_date": competition.start_date,
+            "end_date": competition.end_date,
+            "status": competition.status,
+            "crag_id": str(competition.crag_id)
+        }
 
     async def _get_competition_ascents(self,
                                        comp_id: str) -> List[Dict[str, Any]]:
         """Get all ascents for a competition with related data
         using SQLModel."""
-        with get_db_session() if self.own_session else self.session as session:
-            # Fetch raw ascents for the competition
-            ascents = get_ascents_by_competition_id(session, comp_id)
+        # Fetch raw ascents for the competition
+        ascents = get_ascents_by_competition_id(self.session, comp_id)
 
-            # Convert to list of dictionaries
-            # for consistency with previous implementation
-            result = []
-            for ascent in ascents:
-                # Get related data
-                participant = ascent.participant
-                route = ascent.route
-                team = participant.team
+        # Convert to list of dictionaries
+        # for consistency with previous implementation
+        result = []
+        for ascent in ascents:
+            # Get related data
+            participant = ascent.participant
+            route = ascent.route
+            team = participant.team
 
-                # Create a dictionary with all required data
-                ascent_dict = {
-                    "id": str(ascent.id),
-                    "competition_id": str(ascent.competition_id),
-                    "participant_id": str(ascent.participant_id),
-                    "route_id": str(ascent.route_id),
-                    "timestamp": ascent.timestamp,
-                    "participants": {
-                        "id":
-                        str(participant.id),
-                        "first_name":
-                        participant.first_name,
-                        "last_name":
-                        participant.last_name,
-                        "email":
-                        participant.email,
-                        "team_id":
-                        str(participant.team_id)
-                        if participant.team_id else None,
-                        "solo_entry":
-                        participant.solo_entry
-                    },
-                    "routes": {
-                        "id": str(route.id),
-                        "name": route.name,
-                        "display_name": route.display_name,
-                        "grade": route.grade,
-                        "rating": route.rating
-                    }
+            # Create a dictionary with all required data
+            ascent_dict = {
+                "id": str(ascent.id),
+                "competition_id": str(ascent.competition_id),
+                "participant_id": str(ascent.participant_id),
+                "route_id": str(ascent.route_id),
+                "timestamp": ascent.timestamp,
+                "participants": {
+                    "id":
+                    str(participant.id),
+                    "first_name":
+                    participant.first_name,
+                    "last_name":
+                    participant.last_name,
+                    "email":
+                    participant.email,
+                    "team_id":
+                    str(participant.team_id)
+                    if participant.team_id else None,
+                    "solo_entry":
+                    participant.solo_entry
+                },
+                "routes": {
+                    "id": str(route.id),
+                    "name": route.name,
+                    "display_name": route.display_name,
+                    "grade": route.grade,
+                    "rating": route.rating
+                }
+            }
+
+            # Add team info if present
+            if team:
+                ascent_dict["teams"] = {
+                    "id": str(team.id),
+                    "name": team.name,
+                    "category": team.category
                 }
 
-                # Add team info if present
-                if team:
-                    ascent_dict["teams"] = {
-                        "id": str(team.id),
-                        "name": team.name,
-                        "category": team.category
-                    }
+            result.append(ascent_dict)
 
-                result.append(ascent_dict)
-
-            return result
+        return result
 
     async def _calculate_marathon_scores(self, ascents: List[Dict[str, Any]],
                                          comp_id: str) -> tuple:
@@ -682,60 +676,56 @@ class ScoreCalculator:
 
     async def _get_base_points(self, grade: str) -> int:
         """Get base points for a grade from the database."""
-        with get_db_session() if self.own_session else self.session as session:
-            base_points = get_base_points_by_grade(session, grade)
+        base_points = get_base_points_by_grade(self.session, grade)
 
-            if not base_points:
-                logger.warning(
-                    f"No base points found for grade {grade}, using 0")
-                return 0
+        if not base_points:
+            logger.warning(
+                f"No base points found for grade {grade}, using 0")
+            return 0
 
-            return base_points.points
+        return base_points.points
 
     async def _get_volume_bonus_config(self) -> Dict[str, int]:
         """Get volume bonus configuration from the database."""
-        with get_db_session() if self.own_session else self.session as session:
-            bonuses = get_all_volume_bonuses(session)
+        bonuses = get_all_volume_bonuses(self.session)
 
-            if not bonuses:
-                logger.warning(
-                    "No volume bonus configuration found, using defaults")
-                return {"bonus_increment": 5, "points_per_increment": 10}
+        if not bonuses:
+            logger.warning(
+                "No volume bonus configuration found, using defaults")
+            return {"bonus_increment": 5, "points_per_increment": 10}
 
-            # Return the first configuration
-            bonus = bonuses[0]
-            return {
-                "bonus_increment": bonus.bonus_increment,
-                "points_per_increment": bonus.points_per_increment
-            }
+        # Return the first configuration
+        bonus = bonuses[0]
+        return {
+            "bonus_increment": bonus.bonus_increment,
+            "points_per_increment": bonus.points_per_increment
+        }
 
     async def _get_team_ascent_bonus_config(self) -> Dict[int, float]:
         """Get team ascent bonus configuration from the database."""
-        with get_db_session() if self.own_session else self.session as session:
-            bonuses = get_all_team_bonuses(session)
+        bonuses = get_all_team_bonuses(self.session)
 
-            if not bonuses:
-                logger.warning(
-                    "No team ascent bonus configuration found, using defaults")
-                return {2: 1.1, 3: 1.2, 4: 1.3}
+        if not bonuses:
+            logger.warning(
+                "No team ascent bonus configuration found, using defaults")
+            return {2: 1.1, 3: 1.2, 4: 1.3}
 
-            # Convert to dictionary of team_size -> bonus_factor
-            return {bonus.team_size: bonus.bonus_factor for bonus in bonuses}
+        # Convert to dictionary of team_size -> bonus_factor
+        return {bonus.team_size: bonus.bonus_factor for bonus in bonuses}
 
     async def _get_master_grade_bonus_config(self) -> Dict[str, float]:
         """Get master grade bonus configuration from the database."""
-        with get_db_session() if self.own_session else self.session as session:
-            bonuses = get_all_master_grade_bonuses(session)
+        bonuses = get_all_master_grade_bonuses(self.session)
 
-            if not bonuses:
-                logger.warning(
-                    "No master grade bonus configuration found, using defaults"
-                )
-                return {"bonus_factor": 1.05}
+        if not bonuses:
+            logger.warning(
+                "No master grade bonus configuration found, using defaults"
+            )
+            return {"bonus_factor": 1.05}
 
-            # Return the first configuration
-            bonus = bonuses[0]
-            return {"bonus_factor": bonus.bonus_factor}
+        # Return the first configuration
+        bonus = bonuses[0]
+        return {"bonus_factor": bonus.bonus_factor}
 
     def _grade_to_number(self, grade: str) -> float:
         """
@@ -775,59 +765,58 @@ class ScoreCalculator:
             self, comp_id: str, marathon_scores: List[Dict[str, Any]],
             boulder_beasts_scores: List[Dict[str, Any]]) -> None:
         """Store competition results in the database."""
-        with get_db_session() if self.own_session else self.session as session:
-            # Store Marathon rankings
-            if marathon_scores:
-                logger.info(
-                    f"Storing {len(marathon_scores)} Marathon rankings")
+        # Store Marathon rankings
+        if marathon_scores:
+            logger.info(
+                f"Storing {len(marathon_scores)} Marathon rankings")
 
-                # Process each team's ranking
-                for team_score in marathon_scores:
-                    try:
-                        from database.models.scoring import MarathonRanking
+            # Process each team's ranking
+            for team_score in marathon_scores:
+                try:
+                    from database.models.scoring import MarathonRanking
 
-                        # Create or update marathon ranking
-                        ranking = MarathonRanking(
-                            team_id=team_score['team_id'],
-                            base_score=team_score['base_score'],
-                            volume_score=team_score['volume_score'],
-                            unique_ascent_score=team_score[
-                                'unique_ascent_score'],
-                            team_ascent_bonus=team_score['team_ascent_bonus'],
-                            master_grade_bonus=team_score[
-                                'master_grade_bonus'],
-                            total_score=team_score['total_score'],
-                            rank=team_score['rank'])
+                    # Create or update marathon ranking
+                    ranking = MarathonRanking(
+                        team_id=team_score['team_id'],
+                        base_score=team_score['base_score'],
+                        volume_score=team_score['volume_score'],
+                        unique_ascent_score=team_score[
+                            'unique_ascent_score'],
+                        team_ascent_bonus=team_score['team_ascent_bonus'],
+                        master_grade_bonus=team_score[
+                            'master_grade_bonus'],
+                        total_score=team_score['total_score'],
+                        rank=team_score['rank'])
 
-                        create_marathon_ranking(session, ranking)
-                    except Exception as e:
-                        logger.error(
-                            f"Error storing Marathon ranking for team "
-                            f"{team_score['team_id']}: {str(e)}")
+                    create_marathon_ranking(self.session, ranking)
+                except Exception as e:
+                    logger.error(
+                        f"Error storing Marathon ranking for team "
+                        f"{team_score['team_id']}: {str(e)}")
 
-            # Store Boulder Beasts rankings
-            if boulder_beasts_scores:
-                logger.info(
-                    f"Storing {len(boulder_beasts_scores)} "
-                    "Boulder Beasts rankings"
-                )
+        # Store Boulder Beasts rankings
+        if boulder_beasts_scores:
+            logger.info(
+                f"Storing {len(boulder_beasts_scores)} "
+                "Boulder Beasts rankings"
+            )
 
-                # Process each participant's ranking
-                for participant_score in boulder_beasts_scores:
-                    try:
-                        from database.models.scoring import (
-                            BoulderBeastsRanking)
+            # Process each participant's ranking
+            for participant_score in boulder_beasts_scores:
+                try:
+                    from database.models.scoring import (
+                        BoulderBeastsRanking)
 
-                        # Create or update boulder beasts ranking
-                        ranking = BoulderBeastsRanking(
-                            participant_id=participant_score['participant_id'],
-                            top_grades=participant_score['top_grades'],
-                            total_score=participant_score['total_score'],
-                            rank=participant_score['rank'])
+                    # Create or update boulder beasts ranking
+                    ranking = BoulderBeastsRanking(
+                        participant_id=participant_score['participant_id'],
+                        top_grades=participant_score['top_grades'],
+                        total_score=participant_score['total_score'],
+                        rank=participant_score['rank'])
 
-                        create_boulder_beasts_ranking(session, ranking)
-                    except Exception as e:
-                        logger.error(
-                            "Error storing Boulder Beasts ranking for "
-                            f"participant {participant_score[
-                                'participant_id']}: {str(e)}")
+                    create_boulder_beasts_ranking(self.session, ranking)
+                except Exception as e:
+                    logger.error(
+                        "Error storing Boulder Beasts ranking for "
+                        f"participant {participant_score[
+                            'participant_id']}: {str(e)}")
