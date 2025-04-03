@@ -6,7 +6,7 @@ from scoring.core import ScoreCalculator
 from dotenv import load_dotenv
 from typing import Optional
 
-from utils.database import get_db_session
+from database.base import get_db_session
 from utils.loggers import logger
 
 # Load environment variables

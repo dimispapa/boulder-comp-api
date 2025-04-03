@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 from sqlmodel import Session
 from utils.loggers import logger
-from utils.database import get_db_session
+from database.base import get_db_session
 from database.crud.competitions import (get_competition_by_id,
                                         get_ascents_by_competition_id)
 from database.crud.scoring import (get_base_points_by_grade,
