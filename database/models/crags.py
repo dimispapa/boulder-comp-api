@@ -75,9 +75,8 @@ class BoulderPhoto(SQLModel, table=True):
     url: str
     photo_id: str  # External ID of the photo
     storage_url: Optional[str] = None  # URL to stored image
-    lines_data: Optional[Dict[str,
-                              Any]] = Field(default=None,
-                                            sa_column_kwargs={"type": "JSONB"})
+    lines_data: Optional[str] = Field(default=None,
+                                      sa_column_kwargs={"type": "JSONB"})
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
@@ -89,9 +88,9 @@ class BoulderPhoto(SQLModel, table=True):
     @property
     def lines_data_dict(self) -> Dict[str, Any]:
         """Get lines_data as a Python dictionary."""
-        if isinstance(self.lines_data, str):
-            return json.loads(self.lines_data or "{}")
-        return self.lines_data or {}
+        if not self.lines_data:
+            return {}
+        return json.loads(self.lines_data)
 
     @lines_data_dict.setter
     def lines_data_dict(self, value: Dict[str, Any]):
@@ -99,7 +98,7 @@ class BoulderPhoto(SQLModel, table=True):
         if not value:
             self.lines_data = None
         else:
-            self.lines_data = value
+            self.lines_data = json.dumps(value)
 
 
 class Route(SQLModel, table=True):
@@ -114,9 +113,8 @@ class Route(SQLModel, table=True):
     grade: str
     rating: Optional[float] = None
     description: Optional[str] = None
-    line_data: Optional[Dict[str,
-                             Any]] = Field(default=None,
-                                           sa_column_kwargs={"type": "JSONB"})
+    line_data: Optional[str] = Field(default=None,
+                                     sa_column_kwargs={"type": "JSONB"})
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
@@ -128,9 +126,9 @@ class Route(SQLModel, table=True):
     @property
     def line_data_dict(self) -> Dict[str, Any]:
         """Get line_data as a Python dictionary."""
-        if isinstance(self.line_data, str):
-            return json.loads(self.line_data or "{}")
-        return self.line_data or {}
+        if not self.line_data:
+            return {}
+        return json.loads(self.line_data)
 
     @line_data_dict.setter
     def line_data_dict(self, value: Dict[str, Any]):
@@ -138,7 +136,7 @@ class Route(SQLModel, table=True):
         if not value:
             self.line_data = None
         else:
-            self.line_data = value
+            self.line_data = json.dumps(value)
 
 
 class BoulderSectorMapping(SQLModel, table=True):
