@@ -2,12 +2,14 @@
 SQLModel models related to competitions, teams, participants, and ascents.
 """
 from sqlmodel import SQLModel, Field, Relationship
-from typing import Optional, List
+from typing import Optional, List, TYPE_CHECKING
 from datetime import datetime, UTC
 from uuid import UUID, uuid4
 from enum import Enum
 
-from database.models.routes import Route
+# Type hints for forward references
+if TYPE_CHECKING:
+    from database.models.crags import Route
 
 
 class CompetitionStatus(str, Enum):
@@ -116,7 +118,7 @@ class Ascent(SQLModel, table=True):
 
     # Relationships
     participant: Participant = Relationship(back_populates="ascents")
-    route: Route = Relationship(back_populates="ascents")
+    route: "Route" = Relationship(back_populates="ascents")
 
     class Config:
         """SQLModel config."""

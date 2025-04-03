@@ -2,12 +2,14 @@
 SQLModel models related to crags, sectors, boulders, routes and photos.
 """
 from sqlmodel import SQLModel, Field, Relationship
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, TYPE_CHECKING
 from datetime import datetime, UTC
 from uuid import UUID, uuid4
 import json
 
-from database.models.competitions import Ascent
+# Type hints for forward references
+if TYPE_CHECKING:
+    from database.models.competitions import Ascent
 
 
 class Crag(SQLModel, table=True):

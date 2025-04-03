@@ -11,7 +11,7 @@ from typing import Dict, Any
 from sqlmodel import Session
 
 from utils.loggers import logger
-from utils.database import get_db_session
+from database.base import get_db_session
 from tasks.scraper_tasks import scrape_crag_task, store_crag_data_task
 from utils.general_utils import extract_datetime_from_filename
 from utils.task_status import (get_task_instance, prepare_basic_result,
