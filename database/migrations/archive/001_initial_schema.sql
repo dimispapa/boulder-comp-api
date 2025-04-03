@@ -1,3 +1,5 @@
+-- LEGACY SQL MIGRATION FILE FOR LEGACY DATABASE ON SUPABASE - DO NOT USE
+
 -- Drop tables in reverse order of dependencies
 DROP TABLE IF EXISTS boulder_beasts_rankings CASCADE;
 DROP TABLE IF EXISTS marathon_rankings CASCADE;
@@ -292,11 +294,31 @@ CREATE TABLE ascents (
     competition_id UUID NOT NULL REFERENCES competitions(id) ON DELETE CASCADE,
     participant_id UUID NOT NULL REFERENCES participants(id) ON DELETE CASCADE,
     route_id UUID NOT NULL REFERENCES routes(id) ON DELETE CASCADE,
+    team_id UUID REFERENCES teams(id) ON DELETE SET NULL,
     timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     submitted BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- Create function to automatically set team_id from participant
+CREATE OR REPLACE FUNCTION set_ascent_team_id()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Look up the team_id from the participant
+    SELECT team_id INTO NEW.team_id 
+    FROM participants 
+    WHERE id = NEW.participant_id;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create trigger to run the function
+CREATE TRIGGER before_insert_or_update_ascents
+BEFORE INSERT OR UPDATE ON ascents
+FOR EACH ROW
+EXECUTE FUNCTION set_ascent_team_id();
 
 -- Create scoring configuration tables
 CREATE TABLE base_points (
@@ -434,6 +456,7 @@ CREATE INDEX idx_competition_photos_competition_id ON competition_photos(competi
 CREATE INDEX idx_competition_photos_uploader_id ON competition_photos(uploader_id);
 CREATE INDEX idx_competition_photos_approved ON competition_photos(approved);
 CREATE INDEX idx_competition_photos_featured ON competition_photos(featured);
+CREATE INDEX idx_ascents_team_id ON ascents(team_id);
 
 -- Create RLS (Row Level Security) policies
 ALTER TABLE crags ENABLE ROW LEVEL SECURITY;

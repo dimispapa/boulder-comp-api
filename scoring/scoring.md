@@ -127,9 +127,8 @@ The scoring system is implemented using:
 
 - Asynchronous task processing for handling long calculations
 - JSON storage for detailed calculation auditing
-- Database storage for quick access to rankings
-- Pydantic models for type safety and validation
-- Supabase for data storage and retrieval
+- SQLModel for data storage and retrieval
+- JSON output for audit trail and transparency
 
 ## Future Improvements
 

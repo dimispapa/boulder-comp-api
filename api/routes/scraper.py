@@ -1,14 +1,17 @@
 """
 FastAPI router for the scraping endpoints.
 """
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
 import os
 from dotenv import load_dotenv
 import traceback
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any
+from sqlmodel import Session
+
 from utils.loggers import logger
+from utils.database import get_db_session
 from tasks.scraper_tasks import scrape_crag_task, store_crag_data_task
 from utils.general_utils import extract_datetime_from_filename
 from utils.task_status import (get_task_instance, prepare_basic_result,
@@ -195,68 +198,161 @@ async def list_scraped_files(
             stats = file_path.stat()
             embedded_timestamp = extract_datetime_from_filename(file_path)
             files.append({
-                "file_name":
-                file_path.name,
-                "file_path":
-                str(file_path),
-                "size_kb":
-                round(stats.st_size / 1024, 2),
-                "created":
-                datetime.fromtimestamp(stats.st_ctime).isoformat(),
-                "modified":
-                datetime.fromtimestamp(stats.st_mtime).isoformat(),
-                "embedded_timestamp":
-                embedded_timestamp.isoformat(),
+                "file_name": file_path.name,
+                "file_path": str(file_path),
+                "size_kb": round(stats.st_size / 1024, 2),
+                "created": datetime.fromtimestamp(stats.st_ctime).isoformat(),
+                "modified": datetime.fromtimestamp(stats.st_mtime).isoformat(),
+                "timestamp": embedded_timestamp.isoformat()
             })
 
         # Sort by embedded timestamp (newest first)
-        files.sort(key=lambda x: x["embedded_timestamp"], reverse=True)
+        files.sort(key=lambda x: x["timestamp"], reverse=True)
 
         return {
             "status": "success",
             "files": files,
-            "count": len(files),
-            "crag_filter": crag_name
+            "count": len(files)
         }
+
     except Exception as e:
         logger.error(f"Failed to list scraped files: {str(e)}")
         logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500,
-                            detail=f"Failed to list scraped files: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to list scraped files: {str(e)}")
 
 
-@router.get("/status/{task_id}")
-async def get_task_status(task_id: str, task_type: str = None):
+@router.get("/task/{task_id}")
+async def check_task_status(task_id: str) -> Dict[str, Any]:
     """
-    Get the status of a task.
+    Check the status of a scraping or storage task.
 
     Args:
-        task_id (str): ID of the task to check
-        task_type (str, optional): Type of task ('scrape' or 'store')
-            If not provided, will try to determine automatically
+        task_id (str): ID of the Celery task to check
 
     Returns:
-        dict: Current status of the task
+        dict: Task status and results if available
     """
     try:
-        # Get the appropriate task instance
-        task, determined_task_type = get_task_instance(task_id, task_type)
+        # Get the task instance
+        task = get_task_instance(task_id)
+        if not task:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Task with ID {task_id} not found")
 
-        # Prepare basic result
-        result = prepare_basic_result(task_id, task, determined_task_type)
+        # Prepare a basic result with task ID and status
+        result = prepare_basic_result(task)
 
-        # Process based on task state
-        if task.ready():
-            return handle_completed_task(task, result)
+        # Handle task based on its status
+        if task.status == "SUCCESS" or task.status == "FAILURE":
+            handle_completed_task(task, result)
+        elif task.status == "STARTED" or task.status == "PENDING":
+            handle_in_progress_task(task, result)
         else:
-            return handle_in_progress_task(task, result, determined_task_type)
+            result["status"] = STATUS_ERROR
+            result["error"] = f"Unknown task status: {task.status}"
 
+        return result
+
+    except HTTPException:
+        raise
     except Exception as e:
-        # Provide detailed error about what went wrong
-        error_traceback = traceback.format_exc()
+        logger.error(f"Failed to check task status: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to check task status: {str(e)}")
+
+
+@router.get("/crags")
+async def list_crags(
+    db: Session = Depends(get_db_session)
+) -> Dict[str, Any]:
+    """
+    List all crags in the database.
+
+    Returns:
+        dict: List of crags with their details
+    """
+    try:
+        from database.crud.crags import get_all_crags
+
+        # Get all crags from the database
+        crags = get_all_crags(db)
+
+        # Format the results
+        crag_list = []
+        for crag in crags:
+            crag_list.append({
+                "id": str(crag.id),
+                "name": crag.name,
+                "display_name": crag.display_name,
+                "description": crag.description
+            })
 
         return {
-            "status": STATUS_ERROR,
-            "error": f"Failed to get task status: {str(e)}",
-            "traceback": error_traceback
+            "status": "success",
+            "crags": crag_list,
+            "count": len(crag_list)
         }
+    except Exception as e:
+        logger.error(f"Failed to list crags: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to list crags: {str(e)}")
+
+
+@router.get("/sectors/{crag_id}")
+async def list_sectors(
+    crag_id: str,
+    db: Session = Depends(get_db_session)
+) -> Dict[str, Any]:
+    """
+    List all sectors for a specific crag.
+
+    Args:
+        crag_id (str): ID of the crag
+
+    Returns:
+        dict: List of sectors with their details
+    """
+    try:
+        from database.crud.crags import get_sectors_by_crag_id
+        from uuid import UUID
+
+        # Convert crag_id string to UUID
+        crag_uuid = UUID(crag_id)
+
+        # Get sectors for the crag
+        sectors = get_sectors_by_crag_id(db, crag_uuid)
+
+        # Format the results
+        sector_list = []
+        for sector in sectors:
+            sector_list.append({
+                "id": str(sector.id),
+                "name": sector.name,
+                "display_name": sector.display_name,
+                "description": sector.description
+            })
+
+        return {
+            "status": "success",
+            "crag_id": crag_id,
+            "sectors": sector_list,
+            "count": len(sector_list)
+        }
+    except ValueError:
+        # Invalid UUID format
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid crag ID format: {crag_id}")
+    except Exception as e:
+        logger.error(f"Failed to list sectors: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to list sectors: {str(e)}")

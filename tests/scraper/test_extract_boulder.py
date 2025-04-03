@@ -38,9 +38,9 @@ async def test_extract_boulder():
 
     headers = {"User-Agent": random.choice(user_agents)}
 
-    # Create scraper instance (without actual Supabase client for testing)
+    # Create scraper instance (without actual database session for testing)
     crag_name = "inia-droushia"
-    scraper = CragScraper(headers=headers, supabase=None, crag_name=crag_name)
+    scraper = CragScraper(headers=headers, session=None, crag_name=crag_name)
 
     # Create a mock boulder element
     class MockBoulderElement:

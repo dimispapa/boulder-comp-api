@@ -10,101 +10,127 @@ import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
 from datetime import datetime
+import os
+import json
+from pathlib import Path
 
-from main import app
+from app.api import app
 
 client = TestClient(app)
 
 
 @pytest.fixture
 def mock_celery_task():
-    """Fixture to mock Celery task."""
-    with patch("tasks.scraper_tasks.scrape_crag_task") as mock_task:
-        # Configure the mock
-        task_instance = MagicMock()
-        task_instance.id = "mock-task-id"
-        mock_task.delay.return_value = task_instance
-        yield mock_task
+    """Mock a Celery task AsyncResult."""
+    task = MagicMock()
+    task.state = "SUCCESS"
+    task.date_done = datetime.now()
+    task.successful.return_value = True
+    task.result = {"status": "success"}
+    return task
 
 
 @pytest.fixture
 def mock_store_task():
-    """Fixture to mock store Celery task."""
-    with patch("tasks.scraper_tasks.store_crag_data_task") as mock_task:
-        # Configure the mock
-        task_instance = MagicMock()
-        task_instance.id = "mock-store-task-id"
-        mock_task.delay.return_value = task_instance
-        yield mock_task
+    """Mock a store task AsyncResult."""
+    task = MagicMock()
+    task.id = "mock-store-task-id"
+    return task
 
 
 @pytest.fixture
 def mock_scraped_files():
-    """Fixture to mock scraped files."""
-    with patch("pathlib.Path.glob") as mock_glob:
-        # Create mock files for testing
-        mock_file1 = MagicMock()
-        mock_file1.name = "inia-droushia_20220101_120000.json"
-        mock_file1.stat.return_value.st_size = 1024 * 10  # 10 KB
-        mock_file1.stat.return_value.st_ctime = 1640995200  # 2022-01-01
-        mock_file1.stat.return_value.st_mtime = 1640995200  # 2022-01-01
-        mock_file1.__str__.return_value = (
-            "data/scraped/inia-droushia_20220101_120000.json")
+    """
+    Mock the scraped_files directory structure.
+    
+    This allows us to test the API for listing scraped files
+    without requiring actual files to exist.
+    """
+    # Create mock path objects
+    mock_dir = MagicMock()
+    mock_file1 = MagicMock()
+    mock_file2 = MagicMock()
 
-        mock_file2 = MagicMock()
-        mock_file2.name = "inia-droushia_20220102_120000.json"
-        mock_file2.stat.return_value.st_size = 1024 * 15  # 15 KB
-        mock_file2.stat.return_value.st_ctime = 1641081600  # 2022-01-02
-        mock_file2.stat.return_value.st_mtime = 1641081600  # 2022-01-02
-        mock_file2.__str__.return_value = (
-            "data/scraped/inia-droushia_20220102_120000.json")
+    # Configure mock directory
+    mock_dir.is_dir.return_value = True
+    mock_dir.glob.return_value = [mock_file1, mock_file2]
 
-        # Set up the mock to return our mock files
-        mock_glob.return_value = [mock_file2, mock_file1]  # Newer first
+    # Configure mock files
+    mock_file1.is_file.return_value = True
+    mock_file1.name = "crag1_20220101_120000.json"
+    mock_file1.stat.return_value.st_size = 1024 * 50  # 50 KB
+    mock_file1.stat.return_value.st_mtime = 1640995200  # 2022-01-01
 
-        with patch("pathlib.Path.exists") as mock_exists:
-            mock_exists.return_value = True
-            yield mock_glob
+    mock_file2.is_file.return_value = True
+    mock_file2.name = "crag2_20220102_120000.json"
+    mock_file2.stat.return_value.st_size = 1024 * 100  # 100 KB
+    mock_file2.stat.return_value.st_mtime = 1641081600  # 2022-01-02
+
+    # Patch Path for directory existence checks
+    with patch("pathlib.Path", side_effect=lambda p: mock_dir if p == "data/scraped" else Path(p)):
+        yield
+
+
+# Monkey patch the Celery task to avoid actual task execution
+@pytest.fixture
+def monkey_patch_scraper_task():
+    """Monkey patch the scraper task to return a mock task."""
+    with patch("tasks.scraper_tasks.scrape_crag_task.delay") as mock_task:
+        mock_task.return_value = MagicMock(id="mock-task-id")
+        yield mock_task
+
+
+# Monkey patch the store task
+@pytest.fixture
+def monkey_patch_store_task():
+    """Monkey patch the store task to return a mock task."""
+    with patch("tasks.scraper_tasks.store_data_task.delay") as mock_task:
+        mock_task.return_value = MagicMock(id="mock-store-task-id")
+        yield mock_task
 
 
 @pytest.mark.api
 def test_list_files_endpoint(mock_scraped_files):
-    """Test listing scraped files."""
-    # For this endpoint that doesn't use Celery tasks
-    response = client.get("/api/scraper/list-files",
-                          params={"crag_name": "inia-droushia"})
-
-    # Validate response
+    """Test listing scraped files API endpoint."""
+    response = client.get("/api/scraper/files")
+    
+    # Verify response
     assert response.status_code == 200
     result = response.json()
+    
+    # Check structure
+    assert "status" in result
     assert result["status"] == "success"
     assert "files" in result
-    assert len(result["files"]) == 2
-    assert result["count"] == 2
-    assert result["crag_filter"] == "inia-droushia"
-
-    # Validate file details
+    
+    # Check file data
     files = result["files"]
-    assert files[0]["file_name"] == "inia-droushia_20220102_120000.json"
-    assert files[1]["file_name"] == "inia-droushia_20220101_120000.json"
-    assert files[0]["size_kb"] == 15.0
-    assert "created" in files[0]
-    assert "modified" in files[0]
+    assert len(files) == 2
+    
+    # Check first file data
+    assert files[0]["filename"] == "crag1_20220101_120000.json"
+    assert files[0]["size_kb"] == 50.0
+    assert "timestamp" in files[0]
+    
+    # Check second file data
+    assert files[1]["filename"] == "crag2_20220102_120000.json"
+    assert files[1]["size_kb"] == 100.0
+    assert "timestamp" in files[1]
 
 
 @pytest.mark.api
 def test_start_scraping_endpoint(monkey_patch_scraper_task):
-    """Test the start scraping endpoint."""
+    """Test the API endpoint for starting a scraping task."""
     response = client.post("/api/scraper/start",
-                           params={"crag_name": "test-crag"})
-
+                           params={"crag_name": "inia-droushia"})
+    
     # Validate response
     assert response.status_code == 200
     result = response.json()
     assert result["status"] == "success"
     assert result["message"] == "Scraping task started"
     assert result["task_id"] == "mock-task-id"
-    assert result["task_type"] == "scrape"
+    assert result["crag_name"] == "inia-droushia"
 
 
 @pytest.mark.api
@@ -112,7 +138,7 @@ def test_store_data_endpoint_with_crag_name(monkey_patch_store_task,
                                             mock_scraped_files):
     """Test storing data using crag name."""
     # Mock the sector mapping function
-    with patch("utils.supabase.get_boulder_mappings") as mock_mapping:
+    with patch("utils.database.get_boulder_mappings") as mock_mapping:
         # Setup a mock mapping dictionary that would be returned
         mock_mapping.return_value = {
             "https://27crags.com/crags/inia-droushia/boulders/arkham":
@@ -148,7 +174,7 @@ def test_store_data_endpoint_with_file_path(monkey_patch_store_task):
     file_path = "data/scraped/test_file.json"
 
     # Mock the sector mapping function
-    with patch("utils.supabase.get_boulder_mappings") as mock_mapping:
+    with patch("utils.database.get_boulder_mappings") as mock_mapping:
         # Setup a mock mapping dictionary that would be returned
         mock_mapping.return_value = {
             "https://27crags.com/crags/inia-droushia/boulders/arkham":

@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 import time
 import os
 from typing import Dict, Optional, List
-from supabase import Client
+from sqlmodel import Session
 from urllib.parse import urljoin
 from dotenv import load_dotenv
 import random
@@ -18,8 +18,8 @@ import random
 from utils.general_utils import normalize_url
 from utils.loggers import logger
 from .models import Crag, Boulder, Route, BoulderPhoto, RouteLineData
-from utils.auth_utils import check_requires_authentication, standard_login
-from utils.playwright_utils import PlaywrightSession, extract_session_cookies
+from .auth_utils import check_requires_authentication, standard_login
+from .playwright_utils import PlaywrightSession, extract_session_cookies
 
 # Load environment variables
 load_dotenv()
@@ -34,26 +34,30 @@ class CragScraper:
     Includes rate limiting, authentication, and data extraction.
     """
 
-    def __init__(self, headers: Dict[str, str], supabase: Client,
-                 crag_name: str):
+    def __init__(self,
+                 headers: Dict[str, str],
+                 session: Session = None,
+                 crag_name: str = None):
         """
-        Initialize the scraper with headers and Supabase client.
+        Initialize the scraper with headers and database session.
 
         Args:
             headers (dict): HTTP headers for requests
-            supabase (Client): Initialized Supabase client
-            crag_name (str): Name of the crag to scrape
+            session (Session, optional): Database session for storing data
+            crag_name (str, optional): Name of the crag to scrape
         """
         self.headers = headers
-        self.supabase = supabase
-        self.session = requests.Session()
+        self.session = session
+        self.own_session = session is None
+        self.http_session = requests.Session()
         self.last_request_time = 0
         self.batch_size = 3
         self.batch_delay = 0.1
         self.domain = os.getenv("CRAGS_DOMAIN")
         self.login_url = urljoin(self.domain, "login")
         self.crag_name = crag_name
-        self.crag_url = urljoin(self.domain, f"crags/{crag_name}")
+        self.crag_url = urljoin(self.domain,
+                                f"crags/{crag_name}") if crag_name else None
 
         # Configuration
         self.min_request_interval = float(
