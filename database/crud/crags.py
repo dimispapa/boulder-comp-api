@@ -4,9 +4,11 @@ CRUD operations for crag-related models.
 from typing import List, Optional, Dict
 from uuid import UUID
 from sqlmodel import Session, select
+from datetime import datetime, UTC
 
-from database.models.crags import (Crag, Sector, Boulder, BoulderPhoto, Route,
+from database.models.crags import (Crag, Sector, Boulder, Route,
                                    BoulderSectorMapping)
+from database.models.media import BoulderPhoto
 
 
 # Crag operations
@@ -267,3 +269,157 @@ def delete_boulder_mapping(session: Session, mapping_id: UUID) -> bool:
         session.commit()
         return True
     return False
+
+
+# Upsert operations (Create or Update)
+
+
+def get_photo_by_boulder_and_photo_id(session: Session, boulder_id: UUID,
+                                      photo_id: str) -> Optional[BoulderPhoto]:
+    """Get a photo by boulder ID and photo ID."""
+    statement = select(BoulderPhoto).where(
+        BoulderPhoto.boulder_id == boulder_id,
+        BoulderPhoto.photo_id == photo_id)
+    return session.exec(statement).first()
+
+
+def create_or_update_crag(session: Session, crag: Crag) -> Crag:
+    """Create a new crag or update if it already exists."""
+    existing_crag = get_crag_by_name(session, crag.name)
+
+    if existing_crag:
+        # Update fields from the new crag
+        existing_crag.display_name = crag.display_name
+        existing_crag.description = crag.description
+        existing_crag.updated_at = datetime.now(UTC)
+        session.add(existing_crag)
+        session.commit()
+        session.refresh(existing_crag)
+        return existing_crag
+    else:
+        # Create new crag
+        session.add(crag)
+        session.commit()
+        session.refresh(crag)
+        return crag
+
+
+def create_or_update_sector(session: Session, sector: Sector) -> Sector:
+    """Create a new sector or update if it already exists."""
+    existing_sector = get_sector_by_name(session, sector.name)
+
+    if existing_sector:
+        # Update fields from the new sector
+        existing_sector.display_name = sector.display_name
+        existing_sector.crag_id = sector.crag_id
+        existing_sector.description = sector.description
+        existing_sector.updated_at = datetime.now(UTC)
+        session.add(existing_sector)
+        session.commit()
+        session.refresh(existing_sector)
+        return existing_sector
+    else:
+        # Create new sector
+        session.add(sector)
+        session.commit()
+        session.refresh(sector)
+        return sector
+
+
+def create_or_update_boulder(session: Session, boulder: Boulder) -> Boulder:
+    """Create a new boulder or update if it already exists."""
+    existing_boulder = get_boulder_by_url(session, boulder.url)
+
+    if existing_boulder:
+        # Update fields from the new boulder
+        existing_boulder.sector_id = boulder.sector_id
+        existing_boulder.name = boulder.name
+        existing_boulder.display_name = boulder.display_name
+        existing_boulder.gps_postgis = boulder.gps_postgis
+        existing_boulder.gps_string = boulder.gps_string
+        existing_boulder.updated_at = datetime.now(UTC)
+        session.add(existing_boulder)
+        session.commit()
+        session.refresh(existing_boulder)
+        return existing_boulder
+    else:
+        # Create new boulder
+        session.add(boulder)
+        session.commit()
+        session.refresh(boulder)
+        return boulder
+
+
+def create_or_update_route(session: Session, route: Route) -> Route:
+    """Create a new route or update if it already exists."""
+    existing_route = get_route_by_url(session, route.url)
+
+    if existing_route:
+        # Update fields from the new route
+        existing_route.boulder_id = route.boulder_id
+        existing_route.name = route.name
+        existing_route.display_name = route.display_name
+        existing_route.grade = route.grade
+        existing_route.rating = route.rating
+        existing_route.description = route.description
+        existing_route.line_data = route.line_data
+        existing_route.updated_at = datetime.now(UTC)
+        session.add(existing_route)
+        session.commit()
+        session.refresh(existing_route)
+        return existing_route
+    else:
+        # Create new route
+        session.add(route)
+        session.commit()
+        session.refresh(route)
+        return route
+
+
+def create_or_update_photo(session: Session,
+                           photo: BoulderPhoto) -> BoulderPhoto:
+    """Create a new photo or update if it already exists."""
+    existing_photo = get_photo_by_boulder_and_photo_id(session,
+                                                       photo.boulder_id,
+                                                       photo.photo_id)
+
+    if existing_photo:
+        # Update fields from the new photo
+        existing_photo.source_url = photo.source_url
+        existing_photo.storage_url = photo.storage_url
+        existing_photo.lines_data = photo.lines_data
+        existing_photo.order = photo.order
+        existing_photo.updated_at = datetime.now(UTC)
+        session.add(existing_photo)
+        session.commit()
+        session.refresh(existing_photo)
+        return existing_photo
+    else:
+        # Create new photo
+        session.add(photo)
+        session.commit()
+        session.refresh(photo)
+        return photo
+
+
+def create_or_update_boulder_mapping(
+        session: Session,
+        mapping: BoulderSectorMapping) -> BoulderSectorMapping:
+    """Create a new boulder-sector mapping or update if it already exists."""
+    existing_mapping = get_mapping_by_boulder_url(session, mapping.boulder_url)
+
+    if existing_mapping:
+        # Update fields from the new mapping
+        existing_mapping.sector_name = mapping.sector_name
+        existing_mapping.sector_id = mapping.sector_id
+        existing_mapping.updated_at = datetime.now(UTC)
+        session.add(existing_mapping)
+        session.commit()
+        session.refresh(existing_mapping)
+        return existing_mapping
+    else:
+        # Create new mapping
+        session.add(mapping)
+        session.commit()
+        session.refresh(mapping)
+        return mapping

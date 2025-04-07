@@ -1,39 +1,114 @@
 """
 Core scoring functionality for calculating competition scores.
 """
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple, Set
 from datetime import datetime
 import json
 import uuid
 from pathlib import Path
+import os
+import pandas as pd
 from sqlmodel import Session
+
 from utils.loggers import logger
-from database.crud.competitions import (get_competition_by_id,
-                                        get_ascents_by_competition_id)
-from database.crud.scoring import (get_base_points_by_grade,
-                                   get_all_volume_bonuses,
-                                   get_all_team_bonuses,
-                                   get_all_master_grade_bonuses,
-                                   create_marathon_ranking,
-                                   create_boulder_beasts_ranking)
+from database.crud.competitions import get_competition_by_id
+from database.models.competitions import Competition
+from scoring.data_storage import store_results
 
 
 class ScoreCalculator:
     """
-    Handles score calculations for both Marathon and Boulder Beasts categories.
+    Handles score calculations for both Marathon and Boulder Beasts categories
+    using pandas DataFrames for efficient data manipulation.
     """
 
-    def __init__(self, session: Session):
+    def __init__(self, session: Session, comp_id: str):
         """
         Initialize the score calculator.
 
         Args:
             session (Session): SQLModel database session.
+            comp_id (str): ID of the competition
         """
         self.session = session
-        # Create a data directory to store JSON files if it doesn't exist
+        self.comp_id = comp_id
+
+        # Create data directories
         self.data_dir = Path("data/scoring_results")
         self.data_dir.mkdir(parents=True, exist_ok=True)
+        os.makedirs('data/calculations', exist_ok=True)
+        os.makedirs('data/rankings', exist_ok=True)
+        os.makedirs('data/raw', exist_ok=True)
+
+        # Get competition and scoring configuration
+        self.competition = self.get_competition()
+        self.scoring_config = self._get_scoring_config()
+
+        # DataFrames that will be populated during calculation
+        self.ascents_df = pd.DataFrame()
+        self.team_scores_df = pd.DataFrame()
+        self.individual_scores_df = pd.DataFrame()
+
+    def get_competition(self) -> Optional[Competition]:
+        """Get competition directly from database."""
+        return get_competition_by_id(self.session, self.comp_id)
+
+    async def _get_scoring_config(self) -> Dict[str, Any]:
+        """
+        Get the scoring configuration for the competition.
+
+        This uses the competition relationships to retrieve all the
+        necessary scoring parameters.
+
+        Returns:
+            Dict containing all scoring parameters
+        """
+        logger.info(f"Getting scoring config for competition {self.comp_id}")
+
+        # Get base points for all grades
+        base_points = {}
+        if hasattr(self.competition, 'base_points'):
+            for bp in self.competition.base_points:
+                base_points[bp.grade] = bp.points
+
+        # Get volume bonus configuration
+        volume_bonus = {}
+        if hasattr(self.competition, 'volume_bonus'):
+            volume_bonus["increment"] = \
+                self.competition.volume_bonus.bonus_increment
+            volume_bonus["points"] = \
+                self.competition.volume_bonus.points_per_increment
+
+        # Get team ascent bonuses (special handling for different team sizes)
+        team_bonuses = {}
+        if hasattr(self.competition, 'team_ascent_bonuses'):
+            # Multiple bonuses - one per team size
+            for tb in self.competition.team_ascent_bonuses:
+                team_bonuses[tb.team_size] = tb.bonus_factor
+
+        # Get unique ascent bonus factor
+        unique_bonus_factor = None
+        if hasattr(self.competition, 'unique_ascent_bonus'):
+            unique_bonus_factor = \
+                self.competition.unique_ascent_bonus.bonus_factor
+
+        # Get master grade bonus factor
+        master_grade_bonus_factor = None
+        if hasattr(self.competition, 'master_grade_bonus'):
+            master_grade_bonus_factor = \
+                self.competition.master_grade_bonus.bonus_factor
+
+        # Combine all configurations into one dictionary
+        config = {
+            "base_points": base_points,
+            "volume_bonus": volume_bonus,
+            "team_bonuses": team_bonuses,
+            "unique_bonus_factor": unique_bonus_factor,
+            "master_grade_bonus_factor": master_grade_bonus_factor
+        }
+
+        logger.debug(f"Scoring config: {config}")
+        return config
 
     def _save_json_data(self, data: Any, filename: str) -> str:
         """
@@ -59,764 +134,448 @@ class ScoreCalculator:
         logger.info(f"Saved detailed data to {file_path}")
         return str(file_path)
 
-    async def calculate_scores(self, comp_id: str) -> Dict[str, Any]:
+    async def _prepare_ascents_dataframe(self) -> pd.DataFrame:
         """
-        Calculate scores for all participants in both categories.
-
-        Args:
-            comp_id (str): ID of the competition
+        Prepare a DataFrame of all ascents with necessary information
+        for scoring.
+        Uses the competition relationship to access ascents directly.
 
         Returns:
-            dict: Calculated scores and rankings for both categories
+            pandas.DataFrame: DataFrame with all ascent data
         """
-        try:
-            logger.info(
-                f"Beginning score calculation for competition {comp_id}")
+        # Create an empty list to collect ascent data
+        ascents_data = []
 
-            # Get competition details
-            comp = await self._get_competition(comp_id)
-            if not comp:
-                logger.error(f"Competition {comp_id} not found")
-                raise ValueError(f"Competition {comp_id} not found")
-
-            # Get all ascents for this competition
-            ascents = await self._get_competition_ascents(comp_id)
-            logger.info(
-                f"Retrieved {len(ascents)} ascents for competition {comp_id}")
-
-            # Save raw ascents data
-            self._save_json_data({
-                "competition": comp,
-                "ascents": ascents
-            }, f"comp_{comp_id}_raw_data")
-
-            # Calculate Marathon scores if category is enabled
-            marathon_scores = []
-            if 'marathon' in comp['categories']:
-                logger.info(
-                    f"Calculating Marathon scores for competition {comp_id}")
-                marathon_scores, marathon_details = \
-                    await self._calculate_marathon_scores(
-                        ascents, comp_id)
-                logger.info(f"Calculated Marathon scores for "
-                            f"{len(marathon_scores)} teams")
-
-                # Save detailed Marathon calculations
-                self._save_json_data(marathon_details,
-                                     f"comp_{comp_id}_marathon_calculations")
-
-                # Save final Marathon rankings
-                self._save_json_data(marathon_scores,
-                                     f"comp_{comp_id}_marathon_rankings")
-
-            # Calculate Boulder Beasts scores if category is enabled
-            boulder_beasts_scores = []
-            if 'boulder_beasts' in comp['categories']:
-                logger.info(f"Calculating Boulder Beasts scores "
-                            f"for competition {comp_id}")
-                boulder_beasts_scores, boulder_details = \
-                    await self._calculate_boulder_beasts_scores(
-                        ascents, comp_id)
-                logger.info(f"Calculated Boulder Beasts scores for "
-                            f"{len(boulder_beasts_scores)} participants")
-
-                # Save detailed Boulder Beasts calculations
-                self._save_json_data(
-                    boulder_details,
-                    f"comp_{comp_id}_boulder_beasts_calculations")
-
-                # Save final Boulder Beasts rankings
-                self._save_json_data(
-                    boulder_beasts_scores,
-                    f"comp_{comp_id}_boulder_beasts_rankings")
-
-            # Save combined final rankings before storing in database
-            combined_rankings = {
-                "competition_id": comp_id,
-                "marathon": marathon_scores,
-                "boulder_beasts": boulder_beasts_scores,
-                "timestamp": datetime.now().isoformat()
-            }
-
-            self._save_json_data(combined_rankings,
-                                 f"comp_{comp_id}_final_rankings")
-
-            # Store results in database
-            logger.info(f"Storing calculation results in database "
-                        f"for competition {comp_id}")
-            await self._store_results(comp_id, marathon_scores,
-                                      boulder_beasts_scores)
-
-            logger.info(
-                f"Score calculation completed for competition {comp_id}")
-            return combined_rankings
-
-        except Exception as e:
-            logger.error(
-                f"Error calculating scores for competition {comp_id}: {str(e)}"
-            )
-            raise Exception(f"Error calculating scores: {str(e)}")
-
-    async def _get_competition(self, comp_id: str) -> Optional[Dict[str, Any]]:
-        """Get competition details using SQLModel."""
-        competition = get_competition_by_id(self.session, comp_id)
-
-        if not competition:
-            return None
-
-        # Convert Competition object to dict
-        # for consistency with previous implementation
-        return {
-            "id": str(competition.id),
-            "name": competition.name,
-            "categories": competition.categories_list,
-            "start_date": competition.start_date,
-            "end_date": competition.end_date,
-            "status": competition.status,
-            "crag_id": str(competition.crag_id)
-        }
-
-    async def _get_competition_ascents(self,
-                                       comp_id: str) -> List[Dict[str, Any]]:
-        """Get all ascents for a competition with related data
-        using SQLModel."""
-        # Fetch raw ascents for the competition
-        ascents = get_ascents_by_competition_id(self.session, comp_id)
-
-        # Convert to list of dictionaries
-        # for consistency with previous implementation
-        result = []
-        for ascent in ascents:
-            # Get related data
+        # Iterate through all ascents in the competition using the relationship
+        for ascent in self.competition.ascents:
+            # Get related objects through relationship properties
             participant = ascent.participant
             route = ascent.route
             team = participant.team
 
-            # Create a dictionary with all required data
+            # Create a dictionary with all relevant ascent data
             ascent_dict = {
-                "id": str(ascent.id),
-                "competition_id": str(ascent.competition_id),
-                "participant_id": str(ascent.participant_id),
-                "route_id": str(ascent.route_id),
-                "timestamp": ascent.timestamp,
-                "participants": {
-                    "id":
-                    str(participant.id),
-                    "first_name":
-                    participant.first_name,
-                    "last_name":
-                    participant.last_name,
-                    "email":
-                    participant.email,
-                    "team_id":
-                    str(participant.team_id)
-                    if participant.team_id else None,
-                    "solo_entry":
-                    participant.solo_entry
-                },
-                "routes": {
-                    "id": str(route.id),
-                    "name": route.name,
-                    "display_name": route.display_name,
-                    "grade": route.grade,
-                    "rating": route.rating
-                }
+                "ascent_id": str(ascent.id),
+                "participant_id": str(participant.id),
+                "participant_name":
+                f"{participant.first_name} {participant.last_name}",
+                "route_id": str(route.id),
+                "route_name": route.name,
+                "grade": route.grade,
+                "created_at": ascent.created_at,
+                "solo_entry": participant.solo_entry
             }
 
             # Add team info if present
             if team:
-                ascent_dict["teams"] = {
-                    "id": str(team.id),
-                    "name": team.name,
-                    "category": team.category
-                }
+                ascent_dict["team_id"] = str(team.id)
+                ascent_dict["team_name"] = team.name
+            else:
+                ascent_dict["team_id"] = None
+                ascent_dict["team_name"] = None
 
-            result.append(ascent_dict)
+            # Append to our list
+            ascents_data.append(ascent_dict)
 
-        return result
+        # Convert to DataFrame
+        df = pd.DataFrame(ascents_data)
 
-    async def _calculate_marathon_scores(self, ascents: List[Dict[str, Any]],
-                                         comp_id: str) -> tuple:
-        """Calculate scores for the Marathon category."""
-        # Group ascents by team and track which routes are climbed by each team
-        team_scores = {}
-        route_teams = {}  # Track which teams climbed each route
+        # Add base points column using our scoring config
+        df["base_points"] = df["grade"].apply(
+            lambda g: self.scoring_config["base_points"].get(g, 0))
 
-        # Detailed calculation data to save
-        calculation_details = {
-            "competition_id": comp_id,
-            "timestamp": datetime.now().isoformat(),
-            "team_ascents": {},
-            "route_teams": {},
-            "team_sizes": {},
-            "base_scores": {},
-            "unique_ascents": {},
-            "volume_bonuses": {},
-            "team_bonuses": {},
-            "team_route_completions": {},
-            "grade_leaders": {},
-            "master_grade_bonuses": {},
-            "normalization": {},
-            "config": {
-                "volume_bonus": None,
-                "team_ascent_bonus": None,
-                "master_grade_bonus": None
-            }
-        }
+        # Store the DataFrame for further calculations
+        self.ascents_df = df
 
-        logger.info(f"Processing {len(ascents)} ascents for Marathon scoring")
+        return df
 
-        # First pass: organize ascents and track route completion by teams
-        for ascent in ascents:
-            if not ascent.get('team_id'):
-                continue  # Skip solo participants (no team_id)
+    async def calculate_scores(self) -> None:
+        """
+        Calculate scores for the competition and store results in the database.
 
-            team_id = ascent['team_id']
-            route_id = ascent['route_id']
-            participant_id = ascent['participant_id']
-            grade = ascent['grade']
+        This method coordinates the scoring workflow:
+        1. Get the scoring configuration
+        2. Prepare ascent data
+        3. Calculate scores based on competition category
+        4. Store results in the database
+        """
+        try:
+            # Get scoring parameters from config
+            self.scoring_config = await self._get_scoring_config()
 
-            # Initialize team data if not exists
-            if team_id not in team_scores:
-                team_scores[team_id] = {
-                    'team_id': team_id,
-                    'team_name': ascent.get('teams', {}).get('name'),
-                    'base_score': 0,
-                    'volume_score': 0,
-                    'unique_ascent_score': 0,
-                    'team_ascent_bonus': 0,
-                    'master_grade_bonus': 0,
-                    'total_score': 0,
-                    'ascents': [],
-                    'route_completions':
-                    {},  # Track participant completions per route
-                    'grades_count': {}  # Count ascents by grade
-                }
+            # Prepare ascents DataFrame
+            await self._prepare_ascents_dataframe()
 
-                calculation_details["team_ascents"][team_id] = []
-                calculation_details["team_route_completions"][team_id] = {}
+            # Get category name from competition
+            categories = self.competition.categories
 
-            # Track this ascent
-            team_scores[team_id]['ascents'].append(ascent)
+            logger.info(f"Calculating scores for competition {self.comp_id} "
+                        f"with categories {categories}")
+            for category in categories:
+                category_name = category.name
+                # Calculate scores based on category
+                if category_name.lower() == "marathon":
+                    team_scores, detailed_calculations = \
+                        await self._calculate_marathon_scores()
+                    # Store the results
+                    await store_results(self.session,
+                                        self.comp_id,
+                                        team_scores,
+                                        detailed_calculations,
+                                        is_marathon=True)
+                elif category_name.lower() == "boulder beasts":
+                    participant_scores = \
+                        await self._calculate_boulder_beasts_scores()
+                    # Store the results
+                    await store_results(self.session,
+                                        self.comp_id,
+                                        participant_scores,
+                                        None,
+                                        is_marathon=False)
+                else:
+                    logger.warning(
+                        f"Unsupported competition category: {category_name}")
+                    raise NotImplementedError(
+                        f"Scoring for {category_name} is not implemented")
 
-            # Add to detailed calculation data
-            calculation_details["team_ascents"][team_id].append({
-                "route_id":
-                route_id,
-                "participant_id":
-                participant_id,
-                "grade":
-                grade,
-                "ascent_id":
-                ascent.get('id')
-            })
+            logger.info(
+                f"Score calculation completed for competition {self.comp_id}")
 
-            # Track which teams climbed each route
-            if route_id not in route_teams:
-                route_teams[route_id] = set()
-                calculation_details["route_teams"][route_id] = []
+        except Exception as e:
+            logger.error(f"Error calculating scores: {str(e)}", exc_info=True)
+            raise
 
-            route_teams[route_id].add(team_id)
-            if team_id not in calculation_details["route_teams"][route_id]:
-                calculation_details["route_teams"][route_id].append(team_id)
+    async def _get_master_grade_teams(
+            self, ascents_df: pd.DataFrame) -> Dict[str, str]:
+        """
+        Find teams with most ascents per grade.
+        """
+        # Find teams with most ascents per grade
+        grade_team_counts = ascents_df.groupby(
+            ["grade", "team_id"]).size().reset_index(name="ascent_count")
+        master_grade_teams = {}
 
-            # Track participant completions per route for team ascent bonus
-            if route_id not in team_scores[team_id]['route_completions']:
-                team_scores[team_id]['route_completions'][route_id] = set()
-                calculation_details["team_route_completions"][team_id][
-                    route_id] = []
+        for grade in grade_team_counts["grade"].unique():
+            grade_df = grade_team_counts[grade_team_counts["grade"] == grade]
+            if not grade_df.empty:
+                max_team = grade_df.loc[grade_df["ascent_count"].idxmax()]
+                master_grade_teams[grade] = max_team["team_id"]
 
-            team_scores[team_id]['route_completions'][route_id].add(
-                participant_id)
+        return master_grade_teams
 
-            if participant_id not in calculation_details[
-                    "team_route_completions"][team_id][route_id]:
-                calculation_details["team_route_completions"][team_id][
-                    route_id].append(participant_id)
+    async def _get_unique_ascents(self, ascents_df: pd.DataFrame) -> Set[str]:
+        """
+        Get unique ascents from an ascents DataFrame.
+        """
+        unique_routes = set(ascents_df["route_id"].unique())
+        return unique_routes
 
-            # Count ascents by grade for master grade bonus
-            if grade not in team_scores[team_id]['grades_count']:
-                team_scores[team_id]['grades_count'][grade] = 0
-            team_scores[team_id]['grades_count'][grade] += 1
+    async def _calculate_route_team_bonus(
+            self, route_df: pd.DataFrame, base_points: float,
+            team_size: int) -> Tuple[float, float]:
+        """
+        Calculate team ascent bonus for a given route.
 
-        logger.info(f"Processed ascents for {len(team_scores)} teams")
+        Args:
+            route_df (pd.DataFrame): DataFrame containing route data
+            team_size (int): Size of the team
 
-        # Second pass: calculate base scores and identify unique ascents
-        for team_id, data in team_scores.items():
-            # Get the number of participants in the team
-            team_members = set()
-            for ascent in data['ascents']:
-                team_members.add(ascent['participant_id'])
-            team_size = len(team_members)
-            data['team_size'] = team_size
+        Returns:
+            Float of route team bonus
+        """
+        # Count participants who climbed this route
+        team_sends = route_df["participant_id"].nunique()
+        is_team_complete = team_sends == team_size
 
-            calculation_details["team_sizes"][team_id] = team_size
-            calculation_details["base_scores"][team_id] = 0
-            calculation_details["unique_ascents"][team_id] = []
+        # Calculate team ascent bonus
+        route_team_bonus = 0
+        if is_team_complete:
+            bonus_factor = self.scoring_config["team_bonuses"].get(
+                team_size, 0)
+            route_team_bonus = base_points * bonus_factor
 
-            # Calculate base score
-            for ascent in data['ascents']:
-                base_points = await self._get_base_points(ascent['grade'])
-                data['base_score'] += base_points
+        return route_team_bonus
 
-                # Track base points in details
-                calculation_details["base_scores"][team_id] += base_points
+    async def _calculate_master_grade_bonus(self, team_id: str,
+                                            team_df: pd.DataFrame) -> float:
+        """
+        Calculate master grade bonus for a given team.
+        """
+        # Calculate master grade bonus
+        # based on sum of base points for all the
+        # grades where this team is the master
+        master_grades = []
 
-                # Check if this is a unique ascent
-                # (only this team climbed this route)
-                route_id = ascent['route_id']
-                # Only this team climbed it
-                if len(route_teams[route_id]) == 1:
-                    data['unique_ascent_score'] += base_points
-                    calculation_details["unique_ascents"][team_id].append({
-                        "route_id":
-                        route_id,
-                        "grade":
-                        ascent['grade'],
-                        "points":
-                        base_points
-                    })
+        # Get total base points from all routes
+        # with grades where team is master
+        master_grade_points = 0
+        for grade, master_team in self.master_grade_teams.items():
+            if master_team == team_id:
+                master_grades.append(grade)
+                # Sum the base points for all routes of this grade
+                grade_points = team_df[team_df["grade"] ==
+                                       grade]["base_points"].sum()
+                master_grade_points += grade_points
 
-        logger.info("Calculating volume bonuses")
-        # Calculate volume bonuses
-        volume_bonus_config = await self._get_volume_bonus_config()
-        calculation_details["config"]["volume_bonus"] = volume_bonus_config
-        calculation_details["volume_bonuses"] = {}
+        # Apply the master grade bonus factor
+        # to the total master grade points
+        master_grade_bonus = master_grade_points * self.scoring_config[
+            "master_grade_bonus_factor"]
 
-        for team_id, data in team_scores.items():
-            ascent_count = len(data['ascents'])
-            volume_bonus = (
-                (ascent_count // volume_bonus_config['bonus_increment']) *
-                volume_bonus_config['points_per_increment'])
-            data['volume_score'] = volume_bonus
+        return master_grade_bonus, master_grades
 
-            calculation_details["volume_bonuses"][team_id] = {
-                "ascent_count":
-                ascent_count,
-                "bonus_increments":
-                ascent_count // volume_bonus_config['bonus_increment'],
-                "points_per_increment":
-                volume_bonus_config['points_per_increment'],
-                "total_bonus":
-                volume_bonus
-            }
+    async def _calculate_unique_ascent_bonus(self, route_id: str,
+                                             base_points: float) -> float:
+        """
+        Calculate unique ascent bonus for a route.
+        """
+        route_unique_bonus = 0
+        is_unique = route_id in self.unique_routes
+        if is_unique:
+            route_unique_bonus = base_points * self.scoring_config[
+                "unique_bonus_factor"]
 
-        logger.info("Calculating team ascent bonuses")
-        # Calculate team ascent bonuses
-        # apply when whole team completes a route
-        team_bonus_config = await self._get_team_ascent_bonus_config()
-        calculation_details["config"]["team_ascent_bonus"] = team_bonus_config
-        calculation_details["team_bonuses"] = {}
+        return route_unique_bonus
 
-        for team_id, data in team_scores.items():
-            team_size = data['team_size']
-            data['team_ascent_bonus'] = 0
-            calculation_details["team_bonuses"][team_id] = []
+    async def _calculate_volume_bonus(self, total_ascents: int) -> float:
+        """
+        Calculate volume bonus for a given number of ascents.
+        """
+        volume_bonus_increment = self.scoring_config["volume_bonus"][
+            "increment"]
+        volume_bonus_points = self.scoring_config["volume_bonus"]["points"]
+        volume_bonus = (total_ascents //
+                        volume_bonus_increment) * volume_bonus_points
 
-            # Check each route to see if the whole team completed it
-            for route_id, participants in data['route_completions'].items():
-                # Whole team completed this route
-                if len(participants) == team_size:
-                    # Get the grade of this route to calculate base points
-                    route_grade = next((a['grade'] for a in data['ascents']
-                                        if a['route_id'] == route_id), None)
-                    if route_grade and team_size in team_bonus_config:
-                        route_points = await self._get_base_points(route_grade)
-                        # Apply bonus for this specific route
-                        bonus_factor = team_bonus_config[team_size]
-                        bonus_amount = route_points * bonus_factor
-                        data['team_ascent_bonus'] += bonus_amount
+        return volume_bonus
 
-                        calculation_details["team_bonuses"][team_id].append({
-                            "route_id":
-                            route_id,
-                            "grade":
-                            route_grade,
-                            "base_points":
-                            route_points,
-                            "team_size":
-                            team_size,
-                            "bonus_factor":
-                            bonus_factor,
-                            "bonus_amount":
-                            bonus_amount
-                        })
+    async def _calculate_marathon_scores(
+            self) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """
+        Calculate Marathon scores using pandas DataFrames.
 
-        logger.info("Calculating master grade bonuses")
-        # Identify teams with most ascents at each grade for master grade bonus
-        grade_leaders = {}  # grade -> (team_id, count)
-        calculation_details["grade_leaders"] = {}
+        Returns:
+            Tuple of (team scores list, detailed calculations list)
+        """
+        logger.info("Starting Marathon score calculation with "
+                    f"{len(self.ascents_df)} ascents")
 
-        for team_id, data in team_scores.items():
-            for grade, count in data['grades_count'].items():
-                if grade not in grade_leaders or count > grade_leaders[grade][
-                        1]:
-                    grade_leaders[grade] = (team_id, count)
-                    calculation_details["grade_leaders"][grade] = {
-                        "team_id": team_id,
-                        "count": count
-                    }
+        # Filter out solo entries
+        team_ascents_df = self.ascents_df[~self.ascents_df["solo_entry"]].copy(
+        )
 
-        # Apply master grade bonus to teams with most ascents at each grade
-        master_grade_config = await self._get_master_grade_bonus_config()
-        calculation_details["config"][
-            "master_grade_bonus"] = master_grade_config
-        calculation_details["master_grade_bonuses"] = {}
+        # 1. Calculate unique ascents (routes climbed by only one person)
+        self.unique_routes = await self._get_unique_ascents(team_ascents_df)
 
-        for grade, (leader_team_id, count) in grade_leaders.items():
-            if grade in master_grade_config:
-                # Apply bonus to the grade leader
-                grade_base_points = await self._get_base_points(grade)
-                bonus_factor = master_grade_config[grade]
-                bonus_amount = grade_base_points * count * bonus_factor
-                team_scores[leader_team_id][
-                    'master_grade_bonus'] += bonus_amount
+        # 2. Find teams with most ascents per grade (for master grade bonus)
+        self.master_grade_teams = await self._get_master_grade_teams(
+            team_ascents_df)
 
-                if leader_team_id not in calculation_details[
-                        "master_grade_bonuses"]:
-                    calculation_details["master_grade_bonuses"][
-                        leader_team_id] = []
+        # 3. Calculate team scores
+        team_scores = []
+        detailed_calculations = []
 
-                calculation_details["master_grade_bonuses"][
-                    leader_team_id].append({
-                        "grade": grade,
-                        "count": count,
-                        "base_points": grade_base_points,
-                        "bonus_factor": bonus_factor,
-                        "bonus_amount": bonus_amount
-                    })
+        # Get teams from the DataFrame
+        teams = team_ascents_df[["team_id",
+                                 "team_name"]].dropna().drop_duplicates()
 
-                logger.debug(f"Applied master grade bonus for grade {grade} "
-                             f"to team {leader_team_id}")
+        # Iterate through all teams
+        for _, team_row in teams.iterrows():
+            team_id = team_row["team_id"]
+            team_name = team_row["team_name"]
 
-        logger.info("Calculating total scores and normalizing")
-        # Calculate total scores and normalize by team size
-        rankings = []
-        calculation_details["normalization"] = {}
+            # Filter ascents for this team
+            team_df = team_ascents_df[team_ascents_df["team_id"] == team_id]
 
-        for team_id, data in team_scores.items():
-            team_size = data['team_size']
+            # Calculate team size
+            team_size = team_df["participant_id"].nunique()
 
-            # Calculate total score (before normalization)
-            unnormalized_total = (data['base_score'] + data['volume_score'] +
-                                  data['unique_ascent_score'] +
-                                  data['team_ascent_bonus'] +
-                                  data['master_grade_bonus'])
+            # Get unique team members and routes
+            team_routes = team_df["route_id"].unique()
 
-            calculation_details["normalization"][team_id] = {
-                "team_size": team_size,
-                "before_normalization": {
-                    "base_score": data['base_score'],
-                    "volume_score": data['volume_score'],
-                    "unique_ascent_score": data['unique_ascent_score'],
-                    "team_ascent_bonus": data['team_ascent_bonus'],
-                    "master_grade_bonus": data['master_grade_bonus'],
-                    "total_score": unnormalized_total
-                }
-            }
+            # Initialize variables
+            team_completed_routes = []
+            team_unique_routes = []
+            detailed_routes = []
 
-            # Normalize all scores by team size
-            if team_size > 0:
-                # Normalize each component
-                data['base_score'] /= team_size
-                data['volume_score'] /= team_size
-                data['unique_ascent_score'] /= team_size
-                data['team_ascent_bonus'] /= team_size
-                data['master_grade_bonus'] /= team_size
-                data['total_score'] = (data['base_score'] +
-                                       data['volume_score'] +
-                                       data['unique_ascent_score'] +
-                                       data['team_ascent_bonus'] +
-                                       data['master_grade_bonus'])
+            base_score = 0
+            team_ascent_bonus = 0
+            unique_ascent_bonus = 0
 
-                calculation_details["normalization"][team_id][
-                    "after_normalization"] = {
-                        "base_score": data['base_score'],
-                        "volume_score": data['volume_score'],
-                        "unique_ascent_score": data['unique_ascent_score'],
-                        "team_ascent_bonus": data['team_ascent_bonus'],
-                        "master_grade_bonus": data['master_grade_bonus'],
-                        "total_score": data['total_score']
-                    }
+            # Group by route to process each route once
+            for route_id in team_routes:
+                route_df = team_df[team_df["route_id"] == route_id]
 
-            # Remove the ascents list to make the JSON more manageable
-            data_for_ranking = {
-                k: v
-                for k, v in data.items() if k != 'ascents'
-            }
-            rankings.append(data_for_ranking)
+                # Get first occurrence for route details (grade, name, etc.)
+                route_details = route_df.iloc[0]
 
-        # Sort by total score (already normalized)
-        rankings.sort(key=lambda x: -x['total_score'])
+                # Total base points for this route
+                base_points = route_df["base_points"].sum()
+                base_score += base_points
 
-        # Add ranks
-        for i, entry in enumerate(rankings, 1):
-            entry['rank'] = i
+                # Calculate team ascent bonus
+                route_team_bonus = await self._calculate_route_team_bonus(
+                    route_df, base_points, team_size)
+                if route_team_bonus > 0:
+                    # Add to the total team ascent bonus
+                    team_ascent_bonus += route_team_bonus
+                    # Add to the list of completed routes
+                    team_completed_routes.append(route_id)
 
-        logger.info(f"Marathon scoring completed for {len(rankings)} teams")
-        return rankings, calculation_details
+                # Calculate unique ascent bonus
+                route_unique_bonus = await self._calculate_unique_ascent_bonus(
+                    route_id, base_points)
+                if route_unique_bonus > 0:
+                    # Add to the total unique ascent bonus
+                    unique_ascent_bonus += route_unique_bonus
+                    # Add to the list of unique routes
+                    team_unique_routes.append(route_id)
 
-    async def _calculate_boulder_beasts_scores(self, ascents: List[Dict[str,
-                                                                        Any]],
-                                               comp_id: str) -> tuple:
-        """Calculate scores for the Boulder Beasts category."""
-        # Group ascents by participant
-        participant_scores = {}
-
-        # Detailed calculation data to save
-        calculation_details = {
-            "competition_id": comp_id,
-            "timestamp": datetime.now().isoformat(),
-            "participant_ascents": {},
-            "sorted_ascents": {},
-            "top_grades": {},
-            "score_calculations": {}
-        }
-
-        logger.info(
-            f"Processing {len(ascents)} ascents for Boulder Beasts scoring")
-
-        for ascent in ascents:
-            participant_id = ascent['participant_id']
-
-            # All participants are included in Boulder Beasts category
-            if participant_id not in participant_scores:
-                participant_scores[participant_id] = {
-                    'participant_id': participant_id,
-                    'first_name': ascent.get('participants',
-                                             {}).get('first_name'),
-                    'last_name': ascent.get('participants',
-                                            {}).get('last_name'),
-                    'team_id':
-                    ascent.get('team_id'),  # May be null for solo participants
-                    'ascents': [],
-                    'top_grades': []
-                }
-
-                calculation_details["participant_ascents"][participant_id] = []
-
-            # Store ascent for scoring
-            participant_scores[participant_id]['ascents'].append(ascent)
-
-            # Add to detailed calculation data
-            calculation_details["participant_ascents"][participant_id].append({
-                "ascent_id":
-                ascent.get('id'),
-                "route_id":
-                ascent.get('route_id'),
-                "grade":
-                ascent.get('grade')
-            })
-
-        logger.info(
-            f"Processing ascents for {len(participant_scores)} participants")
-
-        # Calculate scores and top grades for each participant
-        rankings = []
-        for participant_id, data in participant_scores.items():
-            # Sort ascents by grade difficulty
-            sorted_ascents = sorted(
-                data['ascents'],
-                key=lambda a: self._grade_to_number(a['grade']),
-                reverse=True)
-
-            # Store sorted ascents in detailed data
-            calculation_details["sorted_ascents"][participant_id] = [{
-                "grade":
-                a['grade'],
-                "route_id":
-                a['route_id']
-            } for a in sorted_ascents]
-
-            # Take top 5 grades
-            top_grades = [a['grade'] for a in sorted_ascents[:5]]
-            data['top_grades'] = top_grades
-
-            calculation_details["top_grades"][participant_id] = top_grades
-
-            # Calculate total score based on top 5 ascents
-            score_details = []
-            total_score = 0
-
-            for i, ascent in enumerate(sorted_ascents[:5], 1):
-                grade = ascent['grade']
-                points = await self._get_base_points(grade)
-                total_score += points
-
-                score_details.append({
-                    "position": i,
-                    "grade": grade,
-                    "points": points
+                # Store detailed route calculation
+                detailed_routes.append({
+                    "route_id":
+                    route_id,
+                    "route_name":
+                    route_details["route_name"],
+                    "grade":
+                    route_details["grade"],
+                    "base_points":
+                    base_points,
+                    "team_ascent_bonus":
+                    route_team_bonus,
+                    "unique_ascent_bonus":
+                    route_unique_bonus,
+                    "total_points":
+                    base_points + route_team_bonus + route_unique_bonus
                 })
 
-            data['total_score'] = total_score
-            calculation_details["score_calculations"][participant_id] = {
-                "ascents": score_details,
-                "total_score": total_score
+            # Calculate volume bonus
+            total_ascents = len(team_df)
+            volume_bonus = await self._calculate_volume_bonus(total_ascents)
+
+            # Calculate master grade bonus
+            if team_id in self.master_grade_teams.values():
+                master_grade_bonus, master_grades = \
+                    await self._calculate_master_grade_bonus(team_id, team_df)
+            else:
+                master_grade_bonus = 0
+                master_grades = []
+
+            # Calculate total and normalized scores
+            total_score = (base_score + volume_bonus + team_ascent_bonus +
+                           unique_ascent_bonus + master_grade_bonus)
+            normalized_score = total_score / team_size
+
+            # Create team score entry
+            team_score = {
+                "competition_id": self.comp_id,
+                "team_id": team_id,
+                "team_name": team_name,
+                "team_size": team_size,
+                "base_score": base_score,
+                "volume_bonus": volume_bonus,
+                "team_ascent_bonus": team_ascent_bonus,
+                "unique_ascent_bonus": unique_ascent_bonus,
+                "master_grade_bonus": master_grade_bonus,
+                "total_score": total_score,
+                "normalized_score": normalized_score,
+                "ranking": None  # Will be set after sorting
             }
 
-            # Remove the ascents list to make the JSON more manageable
-            data_for_ranking = {
-                k: v
-                for k, v in data.items() if k != 'ascents'
+            # Create detailed calculation entry
+            detailed_calculation = {
+                "team_id": team_id,
+                "team_name": team_name,
+                "team_size": team_size,
+                "routes": detailed_routes,
+                "total_ascents": total_ascents,
+                "volume_bonus": volume_bonus,
+                "team_completed_routes": team_completed_routes,
+                "team_unique_routes": team_unique_routes,
+                "master_grades": master_grades,
+                "master_grade_bonus": master_grade_bonus,
+                "base_score": base_score,
+                "team_ascent_bonus": team_ascent_bonus,
+                "unique_ascent_bonus": unique_ascent_bonus,
+                "total_score": total_score,
+                "normalized_score": normalized_score
             }
-            rankings.append(data_for_ranking)
 
-        # Sort by total score
-        rankings.sort(key=lambda x: -x['total_score'])
+            team_scores.append(team_score)
+            detailed_calculations.append(detailed_calculation)
 
-        # Add ranks
-        for i, entry in enumerate(rankings, 1):
-            entry['rank'] = i
+        # Sort teams by normalized score and assign rankings
+        sorted_scores = sorted(team_scores,
+                               key=lambda x: x["normalized_score"],
+                               reverse=True)
+        for i, team in enumerate(sorted_scores):
+            team["ranking"] = i + 1
 
-        logger.info(
-            f"Boulder Beasts scoring completed for "
-            f"{len(rankings)} participants")
-        return rankings, calculation_details
+        logger.info("Completed Marathon score calculation for "
+                    f"{len(team_scores)} teams")
+        return sorted_scores, detailed_calculations
 
-    async def _get_base_points(self, grade: str) -> int:
-        """Get base points for a grade from the database."""
-        base_points = get_base_points_by_grade(self.session, grade)
-
-        if not base_points:
-            logger.warning(
-                f"No base points found for grade {grade}, using 0")
-            return 0
-
-        return base_points.points
-
-    async def _get_volume_bonus_config(self) -> Dict[str, int]:
-        """Get volume bonus configuration from the database."""
-        bonuses = get_all_volume_bonuses(self.session)
-
-        if not bonuses:
-            logger.warning(
-                "No volume bonus configuration found, using defaults")
-            return {"bonus_increment": 5, "points_per_increment": 10}
-
-        # Return the first configuration
-        bonus = bonuses[0]
-        return {
-            "bonus_increment": bonus.bonus_increment,
-            "points_per_increment": bonus.points_per_increment
-        }
-
-    async def _get_team_ascent_bonus_config(self) -> Dict[int, float]:
-        """Get team ascent bonus configuration from the database."""
-        bonuses = get_all_team_bonuses(self.session)
-
-        if not bonuses:
-            logger.warning(
-                "No team ascent bonus configuration found, using defaults")
-            return {2: 1.1, 3: 1.2, 4: 1.3}
-
-        # Convert to dictionary of team_size -> bonus_factor
-        return {bonus.team_size: bonus.bonus_factor for bonus in bonuses}
-
-    async def _get_master_grade_bonus_config(self) -> Dict[str, float]:
-        """Get master grade bonus configuration from the database."""
-        bonuses = get_all_master_grade_bonuses(self.session)
-
-        if not bonuses:
-            logger.warning(
-                "No master grade bonus configuration found, using defaults"
-            )
-            return {"bonus_factor": 1.05}
-
-        # Return the first configuration
-        bonus = bonuses[0]
-        return {"bonus_factor": bonus.bonus_factor}
-
-    def _grade_to_number(self, grade: str) -> float:
+    async def _calculate_boulder_beasts_scores(self) -> List[Dict[str, Any]]:
         """
-        Convert a climbing grade to a number for easier comparison.
+        Calculate Boulder Beasts scores using pandas DataFrames.
 
-        Example:
-            "6A" -> 6.0
-            "6A+" -> 6.1
-            "6B" -> 6.2
-            "6B+" -> 6.3
-            "6C" -> 6.4
-            ...
-            "8C" -> 8.4
-
-        The conversion is based on the French font grading system.
+        Returns:
+            List of participant scores
         """
-        # Remove '+' and '-' from grade
-        base = grade.replace('+', '').replace('-', '')
+        ascents_df = self.ascents_df.copy()
+        logger.info(f"Starting Boulder Beasts score calculation with "
+                    f"{len(ascents_df)} ascents")
 
-        # Extract main number and letter
-        number = int(base[0])
-        letter = base[1]
+        # Get participants from the DataFrame
+        participants = ascents_df[["participant_id",
+                                   "participant_name"]].drop_duplicates()
 
-        # Convert letter to number (A=1, B=2, C=3)
-        letter_value = ord(letter) - ord('A') + 1
+        # Create a list to store participant scores
+        participant_scores = []
 
-        # Calculate numeric value
-        value = number + (letter_value / 3)
+        # Iterate through all participants
+        for _, participant_row in participants.iterrows():
+            participant_id = participant_row["participant_id"]
+            participant_name = participant_row["participant_name"]
 
-        # Add bonus for '+' grades
-        if '+' in grade:
-            value += 0.33
+            # Filter ascents for this participant
+            participant_df = ascents_df[ascents_df["participant_id"] ==
+                                        participant_id]
 
-        return value
+            # Sort routes by base points (descending) and take top 5
+            top_5_routes = participant_df.sort_values("base_points",
+                                                      ascending=False).head(5)
+            # Get list of top 5 route names + grades
+            top_5_routes = (top_5_routes["route_name"] + " - " +
+                            top_5_routes["grade"]).tolist()
+            # Sum the base points of these top 5 routes
+            top_5_routes_score = top_5_routes["base_points"].sum()
 
-    async def _store_results(
-            self, comp_id: str, marathon_scores: List[Dict[str, Any]],
-            boulder_beasts_scores: List[Dict[str, Any]]) -> None:
-        """Store competition results in the database."""
-        # Store Marathon rankings
-        if marathon_scores:
-            logger.info(
-                f"Storing {len(marathon_scores)} Marathon rankings")
+            # Calculate total points
+            total_score = participant_df["base_points"].sum()
 
-            # Process each team's ranking
-            for team_score in marathon_scores:
-                try:
-                    from database.models.scoring import MarathonRanking
+            # Create participant score entry
+            participant_score = {
+                "competition_id": self.comp_id,
+                "participant_id": participant_id,
+                "participant_name": participant_name,
+                "total_score": total_score,
+                "top_5_routes": top_5_routes,
+                "top_5_routes_score": top_5_routes_score,
+                "ranking": None  # Will be set after sorting
+            }
 
-                    # Create or update marathon ranking
-                    ranking = MarathonRanking(
-                        team_id=team_score['team_id'],
-                        base_score=team_score['base_score'],
-                        volume_score=team_score['volume_score'],
-                        unique_ascent_score=team_score[
-                            'unique_ascent_score'],
-                        team_ascent_bonus=team_score['team_ascent_bonus'],
-                        master_grade_bonus=team_score[
-                            'master_grade_bonus'],
-                        total_score=team_score['total_score'],
-                        rank=team_score['rank'])
+            # Append the participant score to the list
+            participant_scores.append(participant_score)
 
-                    create_marathon_ranking(self.session, ranking)
-                except Exception as e:
-                    logger.error(
-                        f"Error storing Marathon ranking for team "
-                        f"{team_score['team_id']}: {str(e)}")
+        # Sort participants by top 5 routes score and on a tie by total score
+        sorted_scores = sorted(participant_scores,
+                               key=lambda x:
+                               (x["top_5_routes_score"], x["total_score"]),
+                               reverse=True)
+        for i, participant in enumerate(sorted_scores):
+            participant["ranking"] = i + 1
 
-        # Store Boulder Beasts rankings
-        if boulder_beasts_scores:
-            logger.info(
-                f"Storing {len(boulder_beasts_scores)} "
-                "Boulder Beasts rankings"
-            )
-
-            # Process each participant's ranking
-            for participant_score in boulder_beasts_scores:
-                try:
-                    from database.models.scoring import (
-                        BoulderBeastsRanking)
-
-                    # Create or update boulder beasts ranking
-                    ranking = BoulderBeastsRanking(
-                        participant_id=participant_score['participant_id'],
-                        top_grades=participant_score['top_grades'],
-                        total_score=participant_score['total_score'],
-                        rank=participant_score['rank'])
-
-                    create_boulder_beasts_ranking(self.session, ranking)
-                except Exception as e:
-                    logger.error(
-                        "Error storing Boulder Beasts ranking for "
-                        f"participant {participant_score[
-                            'participant_id']}: {str(e)}")
+        logger.info(f"Completed Boulder Beasts score calculation for "
+                    f"{len(participant_scores)} participants")
+        return sorted_scores

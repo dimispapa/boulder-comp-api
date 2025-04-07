@@ -6,7 +6,8 @@ from uuid import UUID
 from sqlmodel import Session, select
 
 from database.models.competitions import (Competition, Team, Participant,
-                                          Ascent, CompetitionStatus)
+                                          Ascent, CompetitionStatus,
+                                          CompetitionCategory)
 from database.models.media import CompetitionPhoto
 
 
@@ -60,6 +61,61 @@ def delete_competition(session: Session, comp_id: UUID) -> bool:
     competition = session.get(Competition, comp_id)
     if competition:
         session.delete(competition)
+        session.commit()
+        return True
+    return False
+
+
+# Competition Category operations
+def get_competition_category_by_id(
+        session: Session, category_id: UUID) -> Optional[CompetitionCategory]:
+    """Get a competition category by its ID."""
+    return session.get(CompetitionCategory, category_id)
+
+
+def get_competition_categories_by_competition_id(
+        session: Session, comp_id: UUID) -> List[CompetitionCategory]:
+    """Get all categories for a specific competition."""
+    statement = select(CompetitionCategory).where(
+        CompetitionCategory.competition_id == comp_id)
+    return session.exec(statement).all()
+
+
+def get_competition_category_by_type(
+        session: Session, comp_id: UUID,
+        category_type: str) -> Optional[CompetitionCategory]:
+    """Get a competition category by its type."""
+    statement = select(CompetitionCategory).where(
+        CompetitionCategory.competition_id == comp_id,
+        CompetitionCategory.category_type == category_type)
+    return session.exec(statement).first()
+
+
+def create_competition_category(
+        session: Session,
+        category: CompetitionCategory) -> CompetitionCategory:
+    """Create a new competition category."""
+    session.add(category)
+    session.commit()
+    session.refresh(category)
+    return category
+
+
+def update_competition_category(
+        session: Session,
+        category: CompetitionCategory) -> CompetitionCategory:
+    """Update an existing competition category."""
+    session.add(category)
+    session.commit()
+    session.refresh(category)
+    return category
+
+
+def delete_competition_category(session: Session, category_id: UUID) -> bool:
+    """Delete a competition category by ID."""
+    category = session.get(CompetitionCategory, category_id)
+    if category:
+        session.delete(category)
         session.commit()
         return True
     return False

@@ -4,11 +4,13 @@ CRUD operations for scoring-related models.
 from typing import List, Optional
 from uuid import UUID
 from sqlmodel import Session, select
+from datetime import datetime, UTC
 
 from database.models.scoring import (BasePoints, VolumeBonus,
                                      UniqueAscentBonus, TeamAscentBonus,
-                                     MasterGradeBonus, ScoredAscent,
-                                     MarathonRanking, BoulderBeastsRanking)
+                                     MasterGradeBonus, MarathonRanking,
+                                     BoulderBeastsRanking,
+                                     MarathonDetailedResults)
 
 
 # BasePoints operations
@@ -230,56 +232,6 @@ def delete_master_grade_bonus(session: Session, id: UUID) -> bool:
     return False
 
 
-# ScoredAscent operations
-def get_scored_ascent_by_id(session: Session,
-                            id: UUID) -> Optional[ScoredAscent]:
-    """Get a scored ascent by ID."""
-    return session.get(ScoredAscent, id)
-
-
-def get_scored_ascents_by_ascent_id(session: Session,
-                                    ascent_id: UUID) -> List[ScoredAscent]:
-    """Get scored ascents by original ascent ID."""
-    statement = select(ScoredAscent).where(ScoredAscent.ascent_id == ascent_id)
-    return session.exec(statement).all()
-
-
-def get_scored_ascents_by_participant(
-        session: Session, participant_id: UUID) -> List[ScoredAscent]:
-    """Get all scored ascents for a participant."""
-    statement = select(ScoredAscent).where(
-        ScoredAscent.participant_id == participant_id)
-    return session.exec(statement).all()
-
-
-def create_scored_ascent(session: Session,
-                         scored_ascent: ScoredAscent) -> ScoredAscent:
-    """Create a new scored ascent."""
-    session.add(scored_ascent)
-    session.commit()
-    session.refresh(scored_ascent)
-    return scored_ascent
-
-
-def update_scored_ascent(session: Session,
-                         scored_ascent: ScoredAscent) -> ScoredAscent:
-    """Update an existing scored ascent."""
-    session.add(scored_ascent)
-    session.commit()
-    session.refresh(scored_ascent)
-    return scored_ascent
-
-
-def delete_scored_ascent(session: Session, id: UUID) -> bool:
-    """Delete a scored ascent by ID."""
-    scored_ascent = session.get(ScoredAscent, id)
-    if scored_ascent:
-        session.delete(scored_ascent)
-        session.commit()
-        return True
-    return False
-
-
 # MarathonRanking operations
 def get_marathon_ranking_by_id(session: Session,
                                id: UUID) -> Optional[MarathonRanking]:
@@ -381,3 +333,160 @@ def delete_boulder_beasts_ranking(session: Session, id: UUID) -> bool:
         session.commit()
         return True
     return False
+
+
+def get_marathon_detailed_results_by_id(
+        session: Session, id: UUID) -> Optional[MarathonDetailedResults]:
+    """Get a marathon detailed results by ID."""
+    return session.get(MarathonDetailedResults, id)
+
+
+def get_marathon_detailed_results_by_team(
+        session: Session, competition_id: UUID,
+        team_id: UUID) -> Optional[MarathonDetailedResults]:
+    """Get a marathon detailed results by team ID and competition ID."""
+    statement = select(MarathonDetailedResults).where(
+        MarathonDetailedResults.competition_id == competition_id,
+        MarathonDetailedResults.team_id == team_id)
+    return session.exec(statement).first()
+
+
+def get_all_marathon_detailed_results(
+        session: Session,
+        competition_id: UUID) -> List[MarathonDetailedResults]:
+    """Get all marathon detailed results for a competition."""
+    statement = select(MarathonDetailedResults).where(
+        MarathonDetailedResults.competition_id == competition_id)
+    return session.exec(statement).all()
+
+
+def create_marathon_detailed_results(
+        session: Session,
+        results: MarathonDetailedResults) -> MarathonDetailedResults:
+    """Create a new marathon detailed results."""
+    session.add(results)
+    session.commit()
+    session.refresh(results)
+    return results
+
+
+def update_marathon_detailed_results(
+        session: Session,
+        results: MarathonDetailedResults) -> MarathonDetailedResults:
+    """Update an existing marathon detailed results."""
+    session.add(results)
+    session.commit()
+    session.refresh(results)
+    return results
+
+
+def delete_marathon_detailed_results(session: Session, id: UUID) -> bool:
+    """Delete a marathon detailed results by ID."""
+    results = session.get(MarathonDetailedResults, id)
+    if results:
+        session.delete(results)
+        session.commit()
+        return True
+    return False
+
+
+# Upsert operations (Create or Update)
+def create_or_update_marathon_ranking(
+        session: Session, ranking: MarathonRanking) -> MarathonRanking:
+    """Create or update a marathon ranking."""
+    # Try to find by team_id which should be unique
+    existing = get_marathon_ranking_by_team(session, ranking.team_id)
+
+    if existing:
+        # Update fields
+        existing.competition_id = ranking.competition_id
+        existing.team_id = ranking.team_id
+        existing.team_size = ranking.team_size
+        existing.base_score = ranking.base_score
+        existing.volume_bonus = ranking.volume_bonus
+        existing.unique_ascent_bonus = ranking.unique_ascent_bonus
+        existing.master_grade_bonus = ranking.master_grade_bonus
+        existing.team_ascent_bonus = ranking.team_ascent_bonus
+        existing.total_score = ranking.total_score
+        existing.rank = ranking.rank
+        existing.updated_at = datetime.now(UTC)
+
+        session.add(existing)
+        session.commit()
+        session.refresh(existing)
+        return existing
+    else:
+        # Create new record
+        session.add(ranking)
+        session.commit()
+        session.refresh(ranking)
+        return ranking
+
+
+def create_or_update_boulder_beasts_ranking(
+        session: Session,
+        ranking: BoulderBeastsRanking) -> BoulderBeastsRanking:
+    """Create or update a boulder beasts ranking."""
+    # Try to find by participant_id which should be unique per competition
+    existing = get_boulder_beasts_by_participant(session,
+                                                 ranking.participant_id)
+
+    if existing:
+        # Update fields
+        existing.competition_id = ranking.competition_id
+        existing.participant_id = ranking.participant_id
+        existing.total_score = ranking.total_score
+        existing.top_5_routes = ranking.top_5_routes
+        existing.top_5_routes_score = ranking.top_5_routes_score
+        existing.rank = ranking.rank
+        existing.updated_at = datetime.now(UTC)
+
+        session.add(existing)
+        session.commit()
+        session.refresh(existing)
+        return existing
+    else:
+        # Create new record
+        session.add(ranking)
+        session.commit()
+        session.refresh(ranking)
+        return ranking
+
+
+def create_or_update_marathon_detailed_results(
+        session: Session,
+        results: MarathonDetailedResults) -> MarathonDetailedResults:
+    """Create or update a marathon detailed results."""
+    # Try to find by team_id which should be unique per competition
+    existing = get_marathon_detailed_results_by_team(session,
+                                                     results.competition_id,
+                                                     results.team_id)
+
+    if existing:
+        # Update fields
+        existing.team_name = results.team_name
+        existing.team_size = results.team_size
+        existing.routes = results.routes
+        existing.total_ascents = results.total_ascents
+        existing.volume_bonus = results.volume_bonus
+        existing.team_completed_routes = results.team_completed_routes
+        existing.team_unique_routes = results.team_unique_routes
+        existing.master_grades = results.master_grades
+        existing.master_grade_bonus = results.master_grade_bonus
+        existing.base_score = results.base_score
+        existing.team_ascent_bonus = results.team_ascent_bonus
+        existing.unique_ascent_bonus = results.unique_ascent_bonus
+        existing.total_score = results.total_score
+        existing.normalized_score = results.normalized_score
+        existing.updated_at = datetime.now(UTC)
+
+        session.add(existing)
+        session.commit()
+        session.refresh(existing)
+        return existing
+    else:
+        # Create new record
+        session.add(results)
+        session.commit()
+        session.refresh(results)
+        return results

@@ -11,9 +11,10 @@ from typing import Dict, Any
 from sqlmodel import Session
 
 from utils.loggers import logger
-from database.base import get_db_session
+from database.base import get_db
 from tasks.scraper_tasks import scrape_crag_task, store_crag_data_task
-from utils.general_utils import extract_datetime_from_filename
+from utils.general_utils import (extract_datetime_from_filename,
+                                 get_most_recent_json_file)
 from utils.task_status import (get_task_instance, prepare_basic_result,
                                handle_completed_task, handle_in_progress_task,
                                STATUS_ERROR)
@@ -84,39 +85,8 @@ async def start_storage(background_tasks: BackgroundTasks,
                 raise HTTPException(
                     status_code=400,
                     detail="Either file_path or crag_name must be provided")
-
-            # Format crag name to match file naming pattern
-            formatted_crag_name = crag_name.lower().replace(' ', '_')
-            logger.info(f"Finding most recent file for crag: {crag_name}")
-
-            # Get all matching files
-            data_dir = Path("data/scraped")
-            pattern = f"{formatted_crag_name}_*.json"
-            matching_files = list(data_dir.glob(pattern))
-
-            if not matching_files:
-                logger.error(f"No data files found for crag: {crag_name}")
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"No scraped data found for crag: {crag_name}")
-
-            # Log all found files with creation date and embedded timestamp
-            logger.info(f"Found {len(matching_files)} matching files:")
-            for i, file in enumerate(matching_files, 1):
-                embedded_date = extract_datetime_from_filename(file)
-                logger.info(
-                    f"  {i}. {file.name} - Created: "
-                    f"{datetime.fromtimestamp(
-                        file.stat().st_ctime).isoformat()} - "
-                    f"Embedded timestamp: {embedded_date.isoformat()}")
-
-            # Sort by the timestamp embedded in the filename (YYYYMMDD_HHMMSS)
-            matching_files.sort(key=extract_datetime_from_filename,
-                                reverse=True)
-            file_path = str(matching_files[0])
-            logger.info(
-                f"Selected most recent file by embedded timestamp: {file_path}"
-            )
+            # Get the most recent file for the given crag
+            file_path = get_most_recent_json_file(crag_name=crag_name)
 
         # Verify the file exists
         if not Path(file_path).exists():
@@ -236,20 +206,20 @@ async def check_task_status(task_id: str) -> Dict[str, Any]:
     """
     try:
         # Get the task instance
-        task = get_task_instance(task_id)
+        task, task_type = get_task_instance(task_id)
         if not task:
             raise HTTPException(
                 status_code=404,
                 detail=f"Task with ID {task_id} not found")
 
         # Prepare a basic result with task ID and status
-        result = prepare_basic_result(task)
+        result = prepare_basic_result(task_id, task, task_type)
 
         # Handle task based on its status
         if task.status == "SUCCESS" or task.status == "FAILURE":
-            handle_completed_task(task, result)
-        elif task.status == "STARTED" or task.status == "PENDING":
-            handle_in_progress_task(task, result)
+            result = handle_completed_task(task, result)
+        elif task.status in ["STARTED", "PENDING", "PROGRESS"]:
+            result = handle_in_progress_task(task, result, task_type)
         else:
             result["status"] = STATUS_ERROR
             result["error"] = f"Unknown task status: {task.status}"
@@ -268,7 +238,7 @@ async def check_task_status(task_id: str) -> Dict[str, Any]:
 
 @router.get("/crags")
 async def list_crags(
-    db: Session = Depends(get_db_session)
+    db: Session = Depends(get_db)
 ) -> Dict[str, Any]:
     """
     List all crags in the database.
@@ -308,7 +278,7 @@ async def list_crags(
 @router.get("/sectors/{crag_id}")
 async def list_sectors(
     crag_id: str,
-    db: Session = Depends(get_db_session)
+    db: Session = Depends(get_db)
 ) -> Dict[str, Any]:
     """
     List all sectors for a specific crag.

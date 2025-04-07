@@ -4,14 +4,15 @@ API routes for media uploading and processing.
 from fastapi import (APIRouter, HTTPException, File, UploadFile, Form, Query,
                      Depends)
 from sqlmodel import Session
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import os
 import uuid
 
-from database.base import get_db_session
+from database.base import get_db
 from database.models.media import CompetitionPhoto
-from database.crud.media import (get_photos_by_competition, create_photo,
-                                 approve_photo, feature_photo)
+from database.crud.media import (get_photos_by_competition,
+                                 create_or_update_photo, approve_photo,
+                                 feature_photo)
 from utils.cloudinary_uploader import CloudinaryUploader
 
 # Initialize router
@@ -33,7 +34,7 @@ async def upload_boulder_photos_to_cloudinary(
     """
     try:
         # Create a CloudinaryUploader and upload photos
-        with get_db_session() as session:
+        with get_db() as session:
             uploader = CloudinaryUploader(session)
             result = uploader.upload_photos_for_crag(crag_name)
 
@@ -63,7 +64,7 @@ async def upload_user_photo(
     photo: UploadFile = File(...),
     user_id: str = Query(...),
     description: str = Form(""),
-    session: Session = Depends(get_db_session)
+    session: Session = Depends(get_db)
 ) -> Dict[str, Any]:
     """
     Handle direct photo uploads from competition participants.
@@ -101,7 +102,7 @@ async def upload_user_photo(
         new_photo = CompetitionPhoto(competition_id=uuid.UUID(competition_id),
                                      uploader_id=participant.id,
                                      description=description)
-        created_photo = create_photo(session, new_photo)
+        created_photo = create_or_update_photo(session, new_photo)
 
         # Upload to Cloudinary
         uploader = CloudinaryUploader(session)
@@ -128,7 +129,7 @@ async def upload_user_photo(
 
         # Update the photo record with Cloudinary URL
         created_photo.cloudinary_url = upload_result["cloudinary_url"]
-        create_photo(session, created_photo)
+        create_or_update_photo(session, created_photo)
 
         return {
             "status": "success",
@@ -150,7 +151,7 @@ async def upload_user_photo(
 async def get_competition_photos(
     competition_id: str,
     approved_only: bool = True,
-    session: Session = Depends(get_db_session)
+    session: Session = Depends(get_db)
 ) -> Dict[str, Any]:
     """
     Get competition photos for a specific competition.
@@ -205,7 +206,7 @@ async def get_competition_photos(
 async def approve_competition_photo(
     photo_id: str,
     approve_status: bool = True,
-    session: Session = Depends(get_db_session)
+    session: Session = Depends(get_db)
 ) -> Dict[str, Any]:
     """
     Approve or unapprove a competition photo.
@@ -247,7 +248,7 @@ async def approve_competition_photo(
 async def feature_competition_photo(
     photo_id: str,
     feature_status: bool = True,
-    session: Session = Depends(get_db_session)
+    session: Session = Depends(get_db)
 ) -> Dict[str, Any]:
     """
     Feature or unfeature a competition photo.
@@ -283,3 +284,32 @@ async def feature_competition_photo(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to update photo feature status: {str(e)}")
+
+
+@router.post("/upload")
+async def upload_media(file: UploadFile = File(...),
+                       competition_id: str = Form(...),
+                       type: str = Form(...),
+                       session: Session = Depends(get_db)):
+    # Implementation of the new route
+    pass
+
+
+@router.get("/competition/{competition_id}")
+async def get_competition_media(competition_id: str,
+                                type: Optional[str] = None,
+                                session: Session = Depends(get_db)):
+    # Implementation of the new route
+    pass
+
+
+@router.delete("/{media_id}")
+async def delete_media(media_id: str, session: Session = Depends(get_db)):
+    # Implementation of the new route
+    pass
+
+
+@router.get("/download/{media_id}")
+async def download_media(media_id: str, session: Session = Depends(get_db)):
+    # Implementation of the new route
+    pass

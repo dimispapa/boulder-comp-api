@@ -10,6 +10,11 @@ services:
       - "${API_PORT}:${API_PORT}"
     environment:
       # Database Configuration
+      - NEON_DB_HOST=${NEON_DB_HOST}
+      - NEON_DB_NAME=${NEON_DB_NAME}
+      - NEON_DB_USER=${NEON_DB_USER}
+      - NEON_DB_PASSWORD=${NEON_DB_PASSWORD}
+      - NEON_DB_PORT=${NEON_DB_PORT}
       - NEON_DB_URL=${NEON_DB_URL}
       # Redis Configuration
       - REDIS_URL=${REDIS_URL}
@@ -60,6 +65,11 @@ services:
       - ./data:/app/data
     environment:
       # Database Configuration
+      - NEON_DB_HOST=${NEON_DB_HOST}
+      - NEON_DB_NAME=${NEON_DB_NAME}
+      - NEON_DB_USER=${NEON_DB_USER}
+      - NEON_DB_PASSWORD=${NEON_DB_PASSWORD}
+      - NEON_DB_PORT=${NEON_DB_PORT}
       - NEON_DB_URL=${NEON_DB_URL}
       # Redis Configuration
       - REDIS_URL=${REDIS_URL}

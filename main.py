@@ -4,7 +4,7 @@ import os
 from dotenv import load_dotenv
 import pytz
 from celery.signals import setup_logging
-
+from utils.loggers import logger
 # Import database components
 from database import create_db_and_tables
 
@@ -24,9 +24,9 @@ api_version = os.getenv("API_VERSION", "1.0.0")
 # Initialize SQLModel database tables
 try:
     create_db_and_tables()
-    print("Database tables created or verified successfully.")
+    logger.info("Database tables created or verified successfully.")
 except Exception as e:
-    print(f"Error initializing database tables: {str(e)}")
+    logger.error(f"Error initializing database tables: {str(e)}")
     # Continue without failing, as tables might already exist
 
 # Initialize FastAPI app

@@ -26,6 +26,13 @@ def setup_logging():
     root_logger.addHandler(handler)
     root_logger.setLevel(LOG_LEVEL)
 
+    # Configure a file handler for the root logger
+    os.makedirs('logs', exist_ok=True)
+    file_handler = logging.FileHandler('logs/app.log')
+    file_handler.setLevel(logging.DEBUG)  # Set to DEBUG to capture everything
+    file_handler.setFormatter(formatter)
+    root_logger.addHandler(file_handler)
+
     # Set higher log levels for third-party libraries
     logging.getLogger('urllib3').setLevel(logging.WARNING)
     logging.getLogger('google').setLevel(logging.WARNING)

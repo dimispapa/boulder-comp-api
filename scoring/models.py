@@ -11,8 +11,6 @@ class ScoreCalculationRequest(BaseModel):
     Request model for score calculation.
     """
     competition_id: str = Field(..., description="ID of the competition")
-    update_leaderboard: bool = Field(
-        True, description="Whether to update the leaderboard")
     category: Optional[str] = Field(
         None,
         description="Category to calculate: marathon, boulder_beasts, "

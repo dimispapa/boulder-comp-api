@@ -11,6 +11,7 @@ from utils.loggers import logger
 import traceback
 import os
 from dotenv import load_dotenv
+from datetime import datetime, UTC
 
 # Import database CRUD functions
 from database.crud.crags import (get_crag_by_name, get_sectors_by_crag_id,
@@ -21,6 +22,9 @@ from database.crud.crags import (get_crag_by_name, get_sectors_by_crag_id,
 from database.crud.competitions import (
     get_competition_by_id, get_competition_photos_without_cloudinary_url,
     get_participants_by_ids)
+
+# Import media CRUD functions
+from database.crud.media import update_photo
 
 # Load environment variables
 load_dotenv()
@@ -222,7 +226,7 @@ class CloudinaryUploader:
 
                     # Filter for photos without cloudinary_url
                     photos_to_upload = [
-                        p for p in boulder_photos if p.cloudinary_url is None
+                        p for p in boulder_photos if p.storage_url is None
                     ]
 
                     if photos_to_upload:
@@ -233,10 +237,12 @@ class CloudinaryUploader:
                             photo_dict = {
                                 "id":
                                 str(photo.id),
-                                "url":
-                                photo.url,
+                                "source_url":
+                                photo.source_url,
                                 "photo_id":
                                 photo.photo_id,
+                                "order":
+                                photo.order,
                                 "boulder_name":
                                 boulder_names[boulder_id],
                                 "boulder_display_name":
@@ -277,7 +283,7 @@ class CloudinaryUploader:
                             "photo_id":
                             photo["id"],
                             "photo_url":
-                            photo["url"],
+                            photo["source_url"],
                             "boulder_id":
                             photo["boulder_id"],
                             "boulder_name":
@@ -391,8 +397,8 @@ class CloudinaryUploader:
                 photo_data = {
                     "id":
                     str(photo.id),
-                    "url":
-                    photo.url,
+                    "source_url":
+                    photo.source_url,
                     "uploader_id":
                     str(photo.uploader_id),
                     "competition_name":
@@ -416,12 +422,8 @@ class CloudinaryUploader:
                     successful_uploads += 1
 
                     # Update the photo record with cloudinary info
-                    photo.cloudinary_url = result["cloudinary_url"]
-                    photo.cloudinary_public_id = result.get(
-                        "cloudinary_public_id")
-                    photo.cloudinary_resource_type = "image"
-                    photo.moderation_status = result.get(
-                        "moderation_status", "pending")
+                    photo.storage_url = result["cloudinary_url"]
+                    photo.updated_at = datetime.now(UTC)
                     self.session.add(photo)
                     self.session.commit()
                 else:
@@ -429,7 +431,7 @@ class CloudinaryUploader:
                         "photo_id":
                         photo_data["id"],
                         "photo_url":
-                        photo_data["url"],
+                        photo_data["source_url"],
                         "uploader_id":
                         photo_data["uploader_id"],
                         "error":
@@ -561,11 +563,12 @@ class CloudinaryUploader:
             dict: Result of the upload operation
         """
         photo_id = photo_data["id"]
-        source_url = photo_data["url"]
+        source_url = photo_data["source_url"]
         boulder_display_name = photo_data["boulder_display_name"]
         boulder_name = photo_data["boulder_name"]
         crag_name = photo_data["crag_name"]
         sector_name = photo_data["sector_name"]
+        order = photo_data["order"]
 
         logger.info(
             f"Uploading photo {photo_id} for boulder {boulder_display_name}")
@@ -610,19 +613,18 @@ class CloudinaryUploader:
             safe_sector_name = "".join(c if c.isalnum() or c == "_" else "_"
                                        for c in sector_name)
 
-            # Create unique filename with crag, sector, and boulder info
+            # Create deterministic filename using photo_id instead of UUID
+            # This ensures the same photo always gets the same filename
             file_name = (f"{safe_crag_name}_{safe_sector_name}_"
-                         f"{safe_boulder_name}_{photo_data['photo_id']}_"
-                         f"{uuid.uuid4().hex[:8]}")
+                         f"{safe_boulder_name}_{order}")
 
             # Upload directly from the URL to Cloudinary
-            # using the folder parameter
             upload_result = cloudinary.uploader.upload(
                 source_url,
                 folder=folder_path,
                 public_id=file_name,
                 resource_type="image",
-                overwrite=True,
+                overwrite=True,  # Will replace existing images with same name
                 responsive=True,  # Generate responsive variants
                 tags=["boulder", crag_name, sector_name, boulder_name])
 
@@ -632,9 +634,8 @@ class CloudinaryUploader:
             # Get photo from database and update with Cloudinary info
             photo = get_photo_by_id(self.session, photo_id)
             if photo:
-                photo.cloudinary_url = cloudinary_url
-                photo.cloudinary_public_id = upload_result["public_id"]
-                photo.cloudinary_resource_type = "image"
+                photo.storage_url = cloudinary_url
+                photo.updated_at = datetime.now(UTC)
                 self.session.add(photo)
                 self.session.commit()
 
@@ -666,7 +667,7 @@ class CloudinaryUploader:
             dict: Result of the upload operation
         """
         photo_id = photo_data["id"]
-        source_url = photo_data["url"]
+        source_url = photo_data["source_url"]
         competition_name = photo_data["competition_name"]
         uploader_name = photo_data["uploader_name"]
 
@@ -722,6 +723,13 @@ class CloudinaryUploader:
             cloudinary_url = upload_result["secure_url"]
             moderation_status = upload_result.get("moderation",
                                                   {}).get("status", "pending")
+
+            # Update photo record with cloudinary info if it exists
+            photo = get_photo_by_id(self.session, photo_id)
+            if photo:
+                photo.cloudinary_url = cloudinary_url
+                photo.updated_at = datetime.now(UTC)
+                update_photo(self.session, photo)
 
             logger.info(
                 f"Successfully uploaded competition photo {photo_id} to "

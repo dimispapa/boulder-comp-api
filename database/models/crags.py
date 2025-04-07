@@ -11,6 +11,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 # Type hints for forward references
 if TYPE_CHECKING:
     from database.models.competitions import Ascent
+    from database.models.media import BoulderPhoto
 
 
 class Crag(SQLModel, table=True):
@@ -65,40 +66,6 @@ class Boulder(SQLModel, table=True):
     sector: Sector = Relationship(back_populates="boulders")
     routes: List["Route"] = Relationship(back_populates="boulder")
     photos: List["BoulderPhoto"] = Relationship(back_populates="boulder")
-
-
-class BoulderPhoto(SQLModel, table=True):
-    """Photos of boulders."""
-    __tablename__ = "boulder_photos"
-
-    id: UUID = Field(default_factory=uuid4, primary_key=True)
-    boulder_id: UUID = Field(foreign_key="boulders.id")
-    url: str
-    photo_id: str  # External ID of the photo
-    storage_url: Optional[str] = None  # URL to stored image
-    lines_data: Optional[str] = Field(default=None, sa_type=JSONB)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-
-    # Relationships
-    boulder: Boulder = Relationship(back_populates="photos")
-
-    # SQLModel doesn't handle JSON/JSONB fields directly, so we need to convert
-    # between Python dicts and JSON strings
-    @property
-    def lines_data_dict(self) -> Dict[str, Any]:
-        """Get lines_data as a Python dictionary."""
-        if not self.lines_data:
-            return {}
-        return json.loads(self.lines_data)
-
-    @lines_data_dict.setter
-    def lines_data_dict(self, value: Dict[str, Any]):
-        """Set lines_data from a Python dictionary."""
-        if not value:
-            self.lines_data = None
-        else:
-            self.lines_data = json.dumps(value)
 
 
 class Route(SQLModel, table=True):

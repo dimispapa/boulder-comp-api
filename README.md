@@ -318,9 +318,10 @@ Common errors without `--build`:
 |--------------|--------------|--------------------------------------------|
 | `id`         | UUID / PK    | Unique photo ID                            |
 | `boulder_id` | FK → boulders.id | Linked boulder                        |
-| `url`        | text         | Original photo URL                         |
+| `source_url` | text         | Original source URL (where photo was scraped from) |
+| `order`      | int          | Order/position of the photo                |
 | `photo_id`   | text         | Photo identifier                           |
-| `storage_url`| text / null  | URL in Supabase Storage after upload       |
+| `storage_url`| text / null  | URL in Cloudinary after upload             |
 | `lines_data` | JSONB / null | Optional route line data                   |
 | `created_at` | timestamp    | When added                                 |
 | `updated_at` | timestamp    | Last updated                               |

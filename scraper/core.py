@@ -15,7 +15,7 @@ from urllib.parse import urljoin
 from dotenv import load_dotenv
 import random
 
-from utils.general_utils import normalize_url
+from utils.general_utils import normalize_url, format_name
 from utils.loggers import logger
 from .models import Crag, Boulder, Route, BoulderPhoto, RouteLineData
 from .auth_utils import check_requires_authentication, standard_login
@@ -465,10 +465,11 @@ class CragScraper:
                 return None
 
             # Get the boulder name and boulder url name
-            boulder_name = boulder_element.find('div', attrs={
-                'class': 'name'
-            }).text.strip()
-            boulder_display_name = boulder_name
+            boulder_display_name = boulder_element.find('div',
+                                                        attrs={
+                                                            'class': 'name'
+                                                        }).text.strip()
+            boulder_name = format_name(boulder_display_name)
             boulder_url_name = boulder_element['href'].split('/')[-1]
             # Get the boulder page
             boulder_page = await self.get_html(boulder_url, async_session)
@@ -508,16 +509,20 @@ class CragScraper:
                     logger.debug(
                         f"Processing photo {idx + 1}/{len(img_divs)} for "
                         f"boulder '{boulder_name}': {img_url}")
-
-                    # Generate a unique photo ID with positive hash values
-                    photo_id = f"{abs(hash(img_url))}_{idx}"
+                    # Get the order of the photo
+                    order = idx + 1
+                    # Generate a photo ID using
+                    # crag_sector_boulder_number format for easy
+                    # replacement and reference of photos
+                    photo_id = f"{self.crag_name}_{boulder_name}_{order}"
 
                     # Extract lines data from JavaScript elements
                     lines_data = self._extract_lines_data(img_div, photo_id)
 
                     # Always create and add the photo, even without lines data
                     photo = BoulderPhoto(id=photo_id,
-                                         url=img_url,
+                                         source_url=img_url,
+                                         order=order,
                                          lines_data=lines_data or {})
                     boulder_photos.append(photo)
                     logger.debug(
@@ -597,9 +602,11 @@ class CragScraper:
                 logger.debug(f"- Number of lines: {len(lines_data['lines'])}")
 
                 # Create a BoulderPhoto object with all the lines data
-                photo = BoulderPhoto(id=photo_id,
-                                     url=img_url,
-                                     lines_data=lines_data)
+                photo = BoulderPhoto(
+                    id=photo_id,
+                    source_url=img_url,
+                    order=1,  # Default order
+                    lines_data=lines_data)
 
                 logger.debug(
                     f"Successfully extracted lines data for photo {photo_id} "
@@ -647,8 +654,8 @@ class CragScraper:
             # Extract route URL and name
             route_url = urljoin(self.domain, anchor['href'])
             route_url = normalize_url(route_url)
-            route_name = anchor.text.strip()
-
+            route_display_name = anchor.text.strip()
+            route_name = format_name(route_display_name)
             # Extract grade
             grade_element = route_element.find('span',
                                                attrs={'class': 'grade'})
@@ -693,9 +700,9 @@ class CragScraper:
                                      f"{img_url}")
 
                         # Find matching boulder photo
-                        matching_photo = next(
-                            (p for p in boulder_photos if p.url == img_url),
-                            None)
+                        matching_photo = next((p for p in boulder_photos
+                                               if p.source_url == img_url),
+                                              None)
 
                         if matching_photo:
                             logger.debug(f"Found matching boulder photo: "
@@ -726,7 +733,7 @@ class CragScraper:
                           rating=rating,
                           description=route_description,
                           line_data=route_line_data,
-                          display_name=route_name)
+                          display_name=route_display_name)
 
             logger.debug(f"Created route object for '{route_name}' with "
                          f"{len(route_line_data)} line datasets")

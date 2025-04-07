@@ -5,9 +5,13 @@ import traceback
 from sqlmodel import Session
 from utils.general_utils import format_name
 from utils.loggers import logger
-from database.models.crags import Boulder, BoulderPhoto, Route
+from database.models.crags import Boulder, Route
+from database.models.media import BoulderPhoto
 from scraper.models import Crag as ScraperCrag
-from database.crud.crags import get_all_boulder_mappings
+from database.crud.crags import (get_all_boulder_mappings,
+                                 create_or_update_boulder,
+                                 create_or_update_route,
+                                 create_or_update_photo)
 
 
 def get_boulder_sector_mappings(session: Session) -> dict:
@@ -47,10 +51,6 @@ def store_crag_data(crag: ScraperCrag, session: Session) -> dict:
         dict: Status of the storage operation
     """
     try:
-        # Import needed CRUD operations
-        from database.crud.crags import (create_boulder, create_route,
-                                         create_photo, get_boulder_by_url)
-
         # Create counters to track stored items
         stored_boulders = 0
         stored_routes = 0
@@ -96,29 +96,18 @@ def store_crag_data(crag: ScraperCrag, session: Session) -> dict:
             display_name = boulder.name
             name = format_name(display_name)
 
-            # Check if boulder already exists
-            existing_boulder = get_boulder_by_url(session, boulder.url)
-
-            if existing_boulder:
-                # Use existing boulder
-                boulder_id = existing_boulder.id
-                logger.debug(
-                    f"Using existing boulder: {boulder.name} with ID "
-                    f"{boulder_id}")
-            else:
-                # Create new boulder
-                new_boulder = Boulder(sector_id=sector_id,
-                                      name=name,
-                                      display_name=display_name,
-                                      url=boulder.url,
-                                      gps_postgis=boulder.gps_postgis,
-                                      gps_string=boulder.gps_string)
-                new_boulder = create_boulder(session, new_boulder)
-                boulder_id = new_boulder.id
-                stored_boulders += 1
-                logger.debug(
-                    f"Created new boulder: {boulder.name} with ID {boulder_id}"
-                )
+            # Create or update boulder
+            new_boulder = Boulder(sector_id=sector_id,
+                                  name=name,
+                                  display_name=display_name,
+                                  url=boulder.url,
+                                  gps_postgis=boulder.gps_postgis,
+                                  gps_string=boulder.gps_string)
+            saved_boulder = create_or_update_boulder(session, new_boulder)
+            boulder_id = saved_boulder.id
+            stored_boulders += 1
+            logger.debug(
+                f"Stored boulder: {boulder.name} with ID {boulder_id}")
 
             # Insert boulder photos if any
             photo_count = len(boulder.photos)
@@ -131,21 +120,22 @@ def store_crag_data(crag: ScraperCrag, session: Session) -> dict:
                 try:
                     # Make sure lines_data is properly formatted for JSONB
                     new_photo = BoulderPhoto(boulder_id=boulder_id,
-                                             url=photo.url,
+                                             source_url=photo.source_url,
+                                             order=photo.order,
                                              photo_id=photo.id,
                                              lines_data=photo.lines_data or {})
 
                     # Log the photo data being inserted for debugging
-                    logger.debug(
-                        f"Inserting photo for boulder {boulder.name}: "
-                        f"ID={photo.id}, URL={photo.url}")
+                    logger.debug(f"Inserting photo {photo.order} for boulder "
+                                 f"{boulder.name}: ID={photo.id}, "
+                                 f"URL={photo.source_url}")
 
-                    # Create the photo
-                    saved_photo = create_photo(session, new_photo)
+                    # Create or update the photo
+                    saved_photo = create_or_update_photo(session, new_photo)
 
                     # Log successful insertion
                     logger.debug(
-                        f"Successfully inserted photo {photo.id} with ID: "
+                        f"Successfully stored photo {photo.id} with ID: "
                         f"{saved_photo.id}")
                     stored_photos += 1
                 except Exception as e:
@@ -183,7 +173,7 @@ def store_crag_data(crag: ScraperCrag, session: Session) -> dict:
                         'line_points': line.line_points
                     } for line in route.line_data]
 
-                # Create the route
+                # Create or update the route
                 new_route = Route(boulder_id=boulder_id,
                                   name=route_name,
                                   display_name=route_display_name,
@@ -193,7 +183,7 @@ def store_crag_data(crag: ScraperCrag, session: Session) -> dict:
                                   description=route.description,
                                   line_data=line_data_json)
 
-                create_route(session, new_route)
+                create_or_update_route(session, new_route)
                 stored_routes += 1
 
                 if line_data_json:

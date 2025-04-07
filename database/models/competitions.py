@@ -7,6 +7,10 @@ from datetime import datetime, UTC
 from uuid import UUID, uuid4
 from enum import Enum
 
+from database.models.scoring import (BasePoints, VolumeBonus,
+                                     UniqueAscentBonus, TeamAscentBonus,
+                                     MasterGradeBonus)
+
 # Type hints for forward references
 if TYPE_CHECKING:
     from database.models.crags import Route
@@ -19,8 +23,8 @@ class CompetitionStatus(str, Enum):
     COMPLETED = "completed"
 
 
-class CompetitionCategory(str, Enum):
-    """Competition category enum."""
+class CategoryType(str, Enum):
+    """Competition category type enum."""
     MARATHON = "marathon"
     BOULDER_BEASTS = "boulder_beasts"
 
@@ -33,9 +37,6 @@ class Competition(SQLModel, table=True):
     name: str = Field(unique=True)
     crag_id: UUID = Field(foreign_key="crags.id")
     display_name: str = Field(unique=True)
-    # We'll store categories as a comma-separated string since
-    # SQLModel doesn't directly support array types
-    categories: str  # Comma-separated string of CompetitionCategory values
     start_date: datetime
     end_date: datetime
     status: str = Field(default=CompetitionStatus.ONGOING.value)
@@ -48,19 +49,36 @@ class Competition(SQLModel, table=True):
     teams: List["Team"] = Relationship(back_populates="competition")
     participants: List["Participant"] = Relationship(
         back_populates="competition")
+    categories: List["CompetitionCategory"] = Relationship(
+        back_populates="competition")
+    ascents: List["Ascent"] = Relationship(back_populates="competition")
+    base_points: Optional[List["BasePoints"]] = Relationship(
+        back_populates="competition")
+    volume_bonus: Optional["VolumeBonus"] = Relationship(
+        back_populates="competition")
+    unique_ascent_bonus: Optional["UniqueAscentBonus"] = Relationship(
+        back_populates="competition")
+    team_ascent_bonuses: Optional[List["TeamAscentBonus"]] = Relationship(
+        back_populates="competition")
+    master_grade_bonus: Optional["MasterGradeBonus"] = Relationship(
+        back_populates="competition")
 
-    # Helper methods for categories
-    @property
-    def categories_list(self) -> List[str]:
-        """Get categories as a list of strings."""
-        return [
-            cat.strip() for cat in self.categories.split(",") if cat.strip()
-        ]
 
-    @categories_list.setter
-    def categories_list(self, value: List[str]):
-        """Set categories from a list of strings."""
-        self.categories = ",".join(value)
+class CompetitionCategory(SQLModel, table=True):
+    """Competition category model."""
+    __tablename__ = "competition_categories"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    competition_id: UUID = Field(foreign_key="competitions.id")
+    category_type: str = Field(CategoryType)
+    name: str = Field(...)
+    description: Optional[str] = Field(default=None)
+    display_order: int = Field(default=0)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    # Relationships
+    competition: Competition = Relationship(back_populates="categories")
 
 
 class Team(SQLModel, table=True):
@@ -70,14 +88,14 @@ class Team(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     competition_id: UUID = Field(foreign_key="competitions.id")
     name: str
-    category: str = CompetitionCategory.MARATHON.value
-    paid: bool = False
+    category: str = CategoryType.MARATHON.value
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Relationships
     competition: Competition = Relationship(back_populates="teams")
     participants: List["Participant"] = Relationship(back_populates="team")
-
+    ascents: List["Ascent"] = Relationship(back_populates="team")
     # We can't have a direct relationship to the captain as it would
     # create a circular dependency, so we'll handle it through properties
     captain_id: Optional[UUID] = None
@@ -96,7 +114,6 @@ class Participant(SQLModel, table=True):
     solo_entry: bool = False
     club_member: bool = False
     membership_number: Optional[str] = None
-    paid: bool = False
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Relationships
@@ -113,12 +130,14 @@ class Ascent(SQLModel, table=True):
     competition_id: UUID = Field(foreign_key="competitions.id")
     participant_id: UUID = Field(foreign_key="participants.id")
     route_id: UUID = Field(foreign_key="routes.id")
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    submitted: bool = False
+    team_id: Optional[UUID] = Field(default=None, foreign_key="teams.id")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Relationships
     participant: Participant = Relationship(back_populates="ascents")
     route: "Route" = Relationship(back_populates="ascents")
+    competition: Competition = Relationship(back_populates="ascents")
+    team: Optional[Team] = Relationship(back_populates="ascents")
 
     class Config:
         """SQLModel config."""

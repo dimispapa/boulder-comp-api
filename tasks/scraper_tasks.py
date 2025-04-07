@@ -194,7 +194,8 @@ def save_crag_to_json(crag: Crag, file_path: Path) -> dict:
                 boulder.gps_string,
                 "photos": [{
                     "id": photo.id,
-                    "url": photo.url,
+                    "source_url": photo.source_url,
+                    "order": photo.order,
                     "lines_data": photo.lines_data
                 } for photo in boulder.photos],
                 "routes": [{
@@ -290,10 +291,13 @@ def store_crag_data_task(self, file_path: str):
             # Create photo objects
             photos = []
             for photo_dict in boulder_dict["photos"]:
-                photo = BoulderPhoto(id=photo_dict["id"],
-                                     url=photo_dict["url"],
-                                     lines_data=photo_dict.get(
-                                         "lines_data", {}))
+                photo = BoulderPhoto(
+                    id=photo_dict["id"],
+                    source_url=photo_dict.get("source_url",
+                                              photo_dict.get("source_url",
+                                                             "")),
+                    order=photo_dict.get("order", 0),
+                    lines_data=photo_dict.get("lines_data", {}))
                 photos.append(photo)
 
             # Create the Boulder object

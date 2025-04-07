@@ -4,14 +4,14 @@ FastAPI router for the scoring endpoints.
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
 from typing import Optional
 from sqlmodel import Session
-from scoring.core import ScoreCalculator
 from scoring.models import ScoreCalculationRequest
-from celery import shared_task
 from dotenv import load_dotenv
-from database.base import get_db_session
+from database.base import get_db
 from database.crud.scoring import (get_all_marathon_rankings,
                                    get_all_boulder_beasts_rankings)
+from database.crud.competitions import get_competition_by_id
 from utils.loggers import logger
+from tasks.scoring_tasks import calculate_scores
 
 # Load environment variables
 load_dotenv()
@@ -20,65 +20,16 @@ load_dotenv()
 router = APIRouter()
 
 
-@shared_task
-async def calculate_scores_task(comp_id: str, category: Optional[str] = None):
-    """Celery task to calculate competition scores."""
-    try:
-        logger.info(f"Starting score calculation for competition {comp_id}, "
-                    f"category: {category}")
-
-        # Use a session within the task
-        with get_db_session() as session:
-            # Create score calculator with session
-            score_calculator = ScoreCalculator(session)
-
-            # Calculate scores
-            rankings = await score_calculator.calculate_scores(comp_id)
-
-            logger.info(
-                f"Score calculation completed for competition {comp_id}")
-
-            # Filter by category if specified
-            if category:
-                if category == "marathon":
-                    logger.info("Returning marathon rankings "
-                                f"for competition {comp_id}")
-                    return {
-                        "status": "success",
-                        "rankings": rankings["marathon"]
-                    }
-                elif category == "boulder_beasts":
-                    logger.info(f"Returning boulder_beasts rankings for "
-                                f"competition {comp_id}")
-                    return {
-                        "status": "success",
-                        "rankings": rankings["boulder_beasts"]
-                    }
-                else:
-                    logger.error(f"Invalid category requested: {category}")
-                    return {
-                        "status": "error",
-                        "detail": f"Invalid category: {category}"
-                    }
-
-            return {"status": "success", "rankings": rankings}
-
-    except Exception as e:
-        logger.error(f"Error in score calculation task: {str(e)}")
-        return {"status": "error", "detail": str(e)}
-
-
-@router.post("/calculate/{comp_id}")
-async def start_score_calculation(comp_id: str,
-                                  request: ScoreCalculationRequest,
+@router.post("/calculate")
+async def start_score_calculation(request: ScoreCalculationRequest,
                                   background_tasks: BackgroundTasks,
-                                  session: Session = Depends(get_db_session)):
+                                  session: Session = Depends(get_db)):
     """
     Start calculating scores for a competition.
 
     Args:
-        comp_id (str): ID of the competition
-        request (ScoreCalculationRequest): Request parameters
+        request (ScoreCalculationRequest): Request parameters including
+                                           competition_id
         background_tasks (BackgroundTasks): FastAPI background tasks
         session (Session): Database session
 
@@ -86,22 +37,26 @@ async def start_score_calculation(comp_id: str,
         dict: Status of the calculation task
     """
     try:
+        comp_id = request.competition_id
         logger.info(
             f"Received score calculation request for competition {comp_id}, "
             f"category: {request.category}")
 
-        # Create score calculator with session
-        score_calculator = ScoreCalculator(session)
-
-        # Get competition details to validate categories
-        comp = await score_calculator._get_competition(comp_id)
+        # Get competition details
+        comp = get_competition_by_id(session, comp_id)
         if not comp:
             logger.error(f"Competition {comp_id} not found")
             raise HTTPException(status_code=404,
                                 detail=f"Competition {comp_id} not found")
 
+        # Get competition categories
+        categories = comp.categories
+        category_types = [
+            cat.category_type for cat in categories
+        ]
+
         # Validate category if specified
-        if request.category and request.category not in comp['categories']:
+        if request.category and request.category not in category_types:
             logger.error(f"Category {request.category} not enabled for "
                          f"competition {comp_id}")
             raise HTTPException(
@@ -109,8 +64,8 @@ async def start_score_calculation(comp_id: str,
                 detail=f"Category {request.category} not enabled for "
                 f"this competition")
 
-        # Queue the calculation task
-        task = calculate_scores_task.delay(comp_id, request.category)
+        # Queue the calculation task using the imported task
+        task = calculate_scores.delay(comp_id, request.category)
         logger.info(f"Score calculation task queued with ID: {task.id}")
 
         return {
@@ -140,7 +95,7 @@ async def get_calculation_status(task_id: str):
     """
     try:
         logger.info(f"Checking status of calculation task {task_id}")
-        task = calculate_scores_task.AsyncResult(task_id)
+        task = calculate_scores.AsyncResult(task_id)
 
         if task.ready():
             if task.successful():
@@ -162,7 +117,7 @@ async def get_calculation_status(task_id: str):
 @router.get("/rankings/{comp_id}")
 async def get_competition_rankings(comp_id: str,
                                    category: Optional[str] = None,
-                                   session: Session = Depends(get_db_session)):
+                                   session: Session = Depends(get_db)):
     """
     Get the latest rankings for a competition.
 
@@ -179,18 +134,21 @@ async def get_competition_rankings(comp_id: str,
         logger.info(f"Fetching rankings for competition {comp_id}, "
                     f"category: {category}")
 
-        # Create score calculator with session for competition validation
-        score_calculator = ScoreCalculator(session)
-
-        # Get competition details to validate categories
-        comp = await score_calculator._get_competition(comp_id)
+        # Get competition
+        comp = get_competition_by_id(session, comp_id)
         if not comp:
             logger.error(f"Competition {comp_id} not found")
             raise HTTPException(status_code=404,
                                 detail=f"Competition {comp_id} not found")
 
+        # Get active competition categories
+        categories = comp.categories
+        category_types = [
+            cat.category_type for cat in categories
+        ]
+
         # Validate category if specified
-        if category and category not in comp['categories']:
+        if category and category not in category_types:
             logger.error(f"Category {category} not enabled for "
                          f"competition {comp_id}")
             raise HTTPException(status_code=400,
@@ -202,11 +160,9 @@ async def get_competition_rankings(comp_id: str,
                 # Get marathon rankings
                 rankings = get_all_marathon_rankings(session)
                 # Filter by competition ID
-                # NOTE: We need to adapt the model to include competition_id
                 comp_id_uuid = comp_id  # Assuming comp_id is already a UUID
                 rankings = [
-                    r for r in rankings
-                    if getattr(r, 'competition_id', None) == comp_id_uuid
+                    r for r in rankings if r.competition_id == comp_id_uuid
                 ]
 
                 if not rankings:
@@ -230,6 +186,7 @@ async def get_competition_rankings(comp_id: str,
                         "team_ascent_bonus": rank.team_ascent_bonus,
                         "master_grade_bonus": rank.master_grade_bonus,
                         "total_score": rank.total_score,
+                        "normalized_score": rank.normalized_score,
                         "rank": rank.rank
                     })
 
@@ -241,11 +198,9 @@ async def get_competition_rankings(comp_id: str,
                 # Get boulder beasts rankings
                 rankings = get_all_boulder_beasts_rankings(session)
                 # Filter by competition ID
-                # NOTE: We need to adapt the model to include competition_id
                 comp_id_uuid = comp_id  # Assuming comp_id is already a UUID
                 rankings = [
-                    r for r in rankings
-                    if getattr(r, 'competition_id', None) == comp_id_uuid
+                    r for r in rankings if r.competition_id == comp_id_uuid
                 ]
 
                 if not rankings:
@@ -289,11 +244,11 @@ async def get_competition_rankings(comp_id: str,
             comp_id_uuid = comp_id  # Assuming comp_id is already a UUID
             marathon_rankings = [
                 r for r in marathon_rankings
-                if getattr(r, 'competition_id', None) == comp_id_uuid
+                if r.competition_id == comp_id_uuid
             ]
             boulder_beasts_rankings = [
                 r for r in boulder_beasts_rankings
-                if getattr(r, 'competition_id', None) == comp_id_uuid
+                if r.competition_id == comp_id_uuid
             ]
 
             if not marathon_rankings and not boulder_beasts_rankings:
@@ -314,6 +269,7 @@ async def get_competition_rankings(comp_id: str,
                     "team_ascent_bonus": rank.team_ascent_bonus,
                     "master_grade_bonus": rank.master_grade_bonus,
                     "total_score": rank.total_score,
+                    "normalized_score": rank.normalized_score,
                     "rank": rank.rank
                 })
 

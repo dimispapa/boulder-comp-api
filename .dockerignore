@@ -75,3 +75,6 @@ data/
 # Test debug files
 tests/scraper/debug/
 *.test_data/
+
+# Logs
+logs/

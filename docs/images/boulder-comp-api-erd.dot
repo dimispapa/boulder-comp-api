@@ -13,7 +13,7 @@ digraph G {
     
     boulders [label="{boulders|id: UUID\lname: text\ldisplay_name: text\lsector_id: UUID\lurl: text\lgps_postgis: GEOGRAPHY(POINT)\lgps_string: text\lcreated_at: timestamp\lupdated_at: timestamp}"];
     
-    boulder_photos [label="{boulder_photos|id: UUID\lboulder_id: UUID\lurl: text\lphoto_id: text\lstorage_url: text\llines_data: JSONB\lcreated_at: timestamp\lupdated_at: timestamp}"];
+    boulder_photos [label="{boulder_photos|id: UUID\lboulder_id: UUID\lsource_url: text\lorder: int\lphoto_id: text\lstorage_url: text\llines_data: JSONB\lcreated_at: timestamp\lupdated_at: timestamp}"];
     
     routes [label="{routes|id: UUID\lboulder_id: UUID\lname: text\ldisplay_name: text\lurl: text\lgrade: text\lrating: float\ldescription: text\lline_data: JSONB\lcreated_at: timestamp\lupdated_at: timestamp}"];
     
