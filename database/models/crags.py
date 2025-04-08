@@ -10,7 +10,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 
 # Type hints for forward references
 if TYPE_CHECKING:
-    from database.models.competitions import Ascent
+    from database.models.competitions import Ascent, Competition
     from database.models.media import BoulderPhoto
 
 
@@ -27,6 +27,7 @@ class Crag(SQLModel, table=True):
 
     # Relationships
     sectors: List["Sector"] = Relationship(back_populates="crag")
+    competitions: List["Competition"] = Relationship(back_populates="crag")
 
 
 class Sector(SQLModel, table=True):
