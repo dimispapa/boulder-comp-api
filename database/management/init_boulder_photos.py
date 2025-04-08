@@ -7,7 +7,7 @@ import argparse
 import sys
 
 from utils.loggers import logger
-from database.base import get_db_session
+from database.management.base import get_db_session
 from sqlmodel import select
 
 

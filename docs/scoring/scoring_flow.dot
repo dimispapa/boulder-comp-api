@@ -1,0 +1,137 @@
+digraph ScoringFlow {
+    // Graph settings
+    rankdir=TB;
+    splines=ortho;
+    nodesep=0.8;
+    ranksep=0.8;
+    pad=0.5;
+    
+    // Node styles
+    node [shape=box, style="rounded,filled", fontname="Arial", fontsize=12, fontcolor=black, margin="0.2,0.1", height=0.6, width=2.0];
+    edge [fontname="Arial", fontsize=10, fontcolor=black, color="#666666"];
+    
+    // Color scheme
+    bgcolor="white";
+    
+    // Node groups/colors
+    node [fillcolor="#D6EAF8"] // Light blue for data input
+    InputData [label="Raw Ascent Data\nCollection"];
+    
+    node [fillcolor="#D5F5E3"] // Light green for processing
+    CalculateBasePoints [label="Calculate Base Points\nby Grade"];
+    VolumeBonus [label="Apply Volume Bonus\n(Team-based)"];
+    TeamAscentsProcessing [label="Process Team\nAscents"];
+    UniqueAscentsProcessing [label="Identify Unique\nAscents"];
+    CalculateMasterGrades [label="Identify Master\nGrades"];
+    
+    node [fillcolor="#FADBD8"] // Light red for bonuses
+    TeamAscentBonus [label="Apply Team\nAscent Bonus"];
+    UniqueAscentBonus [label="Apply Unique\nAscent Bonus"];
+    MasterGradeBonus [label="Apply Master\nGrade Bonus"];
+    
+    node [fillcolor="#FCF3CF"] // Light yellow for scoring
+    TotalTeamScore [label="Calculate Total\nTeam Score"];
+    NormalizeScore [label="Normalize Score\nby Team Size"];
+    GenerateRankings [label="Generate Final\nRankings"];
+    
+    node [fillcolor="#E5E8E8"] // Gray for database
+    StoreCalculatedResults [label="Store Results in\nDatabase"];
+    
+    node [fillcolor="#D2B4DE"] // Light purple for output
+    DisplayResults [label="Display Results\nto Users"];
+    
+    // Special nodes
+    node [shape=diamond, fillcolor="#F9E79F"]
+    TeamOrSolo [label="Team or Solo?"];
+    
+    // Process flow - Main flow
+    InputData -> CalculateBasePoints;
+    
+    CalculateBasePoints -> TeamOrSolo;
+    
+    // Team path (Marathon category)
+    TeamOrSolo -> TeamAscentsProcessing [label="Team"];
+    TeamOrSolo -> UniqueAscentsProcessing [label="Solo"];
+    
+    TeamAscentsProcessing -> TeamAscentBonus;
+    TeamAscentBonus -> UniqueAscentsProcessing;
+    
+    UniqueAscentsProcessing -> UniqueAscentBonus;
+    UniqueAscentBonus -> VolumeBonus;
+    
+    VolumeBonus -> CalculateMasterGrades;
+    CalculateMasterGrades -> MasterGradeBonus;
+    
+    MasterGradeBonus -> TotalTeamScore;
+    TotalTeamScore -> NormalizeScore;
+    
+    // Solo path merges back (Boulder Beasts category)
+    UniqueAscentsProcessing -> TotalTeamScore [style=dashed, label="Solo Path"];
+    
+    NormalizeScore -> GenerateRankings;
+    GenerateRankings -> StoreCalculatedResults;
+    StoreCalculatedResults -> DisplayResults;
+    
+    // Subgraphs for logical grouping
+    subgraph cluster_data_collection {
+        label="Data Collection";
+        style=dashed;
+        color="#AAAAAA";
+        InputData;
+    }
+    
+    subgraph cluster_scoring_calculation {
+        label="Scoring Calculation";
+        style=dashed;
+        color="#AAAAAA";
+        CalculateBasePoints;
+        TeamOrSolo;
+        TeamAscentsProcessing;
+        UniqueAscentsProcessing;
+        CalculateMasterGrades;
+    }
+    
+    subgraph cluster_bonus_application {
+        label="Bonus Application";
+        style=dashed;
+        color="#AAAAAA";
+        TeamAscentBonus;
+        UniqueAscentBonus;
+        VolumeBonus;
+        MasterGradeBonus;
+    }
+    
+    subgraph cluster_final_scoring {
+        label="Final Scoring & Display";
+        style=dashed;
+        color="#AAAAAA";
+        TotalTeamScore;
+        NormalizeScore;
+        GenerateRankings;
+        StoreCalculatedResults;
+        DisplayResults;
+    }
+    
+    // Legend
+    subgraph cluster_legend {
+        label="Legend";
+        style=dashed;
+        color="#AAAAAA";
+        
+        legend_data [label="Data Input", fillcolor="#D6EAF8"];
+        legend_process [label="Processing", fillcolor="#D5F5E3"];
+        legend_bonus [label="Bonus Calculation", fillcolor="#FADBD8"];
+        legend_scoring [label="Scoring", fillcolor="#FCF3CF"];
+        legend_db [label="Database", fillcolor="#E5E8E8"];
+        legend_output [label="Output", fillcolor="#D2B4DE"];
+        legend_decision [label="Decision", shape=diamond, fillcolor="#F9E79F"];
+        
+        // Invisible edges to arrange legend items
+        legend_data -> legend_process [style=invis];
+        legend_process -> legend_bonus [style=invis];
+        legend_bonus -> legend_scoring [style=invis];
+        legend_scoring -> legend_db [style=invis];
+        legend_db -> legend_output [style=invis];
+        legend_output -> legend_decision [style=invis];
+    }
+} 

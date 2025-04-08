@@ -3,12 +3,15 @@ Database initialization for mock competition data.
 """
 from datetime import datetime, timedelta
 from sqlmodel import Session, select
+import bcrypt
+import sqlalchemy.schema  # noqa: F401
 
 from utils.loggers import logger
 from database.models.competitions import (Competition, CompetitionCategory,
                                           Team, Participant, Ascent,
                                           CompetitionStatus, CategoryType)
 from database.models.crags import Crag, Route
+from database.models.accounts import User, UserRole, CompVoucher
 
 # Constants
 MOCK_COMP_NAME = "mock_comp_2025"
@@ -78,7 +81,7 @@ def import_mock_competitions(session: Session):
 
 
 def import_mock_teams(session: Session):
-    """Import mock team data."""
+    """Import mock team data with captains assigned."""
     # Check if teams already exist
     existing_count = session.exec(select(Team)).first()
     if existing_count:
@@ -92,39 +95,340 @@ def import_mock_teams(session: Session):
         logger.error("Mock competition not found. Cannot create teams.")
         return
 
-    # Create six mock teams
-    teams = [
-        Team(competition_id=comp.id,
-             name="Rock Stars",
-             category=CategoryType.MARATHON),
-        Team(competition_id=comp.id,
-             name="Boulderers",
-             category=CategoryType.MARATHON),
-        Team(competition_id=comp.id,
-             name="Flash Force",
-             category=CategoryType.MARATHON),
-        Team(competition_id=comp.id,
-             name="Grip Masters",
-             category=CategoryType.MARATHON),
-        Team(competition_id=comp.id,
-             name="The Climbers",
-             category=CategoryType.MARATHON),
-        Team(competition_id=comp.id,
-             name="Ramblers",
-             category=CategoryType.MARATHON)
-    ]
+    # Get captain participants
+    captain_emails = {
+        "Rock Stars": "john.smith@example.com",
+        "Boulderers": "sarah.d@example.com",
+        "Flash Force": "robert.t@example.com",
+        "Grip Masters": "thomas.w@example.com",
+        "The Climbers": "jessica.l@example.com",
+        "Ramblers": "lucas.p@example.com"
+    }
+
+    captains = {}
+    for captain_email in captain_emails.values():
+        participant = session.exec(
+            select(Participant).where(
+                Participant.email == captain_email)).first()
+        if participant:
+            captains[captain_email] = participant.id
+
+    # Create teams with captains
+    teams = []
+    for team_name, captain_email in captain_emails.items():
+        if captain_email in captains:
+            team = Team(competition_id=comp.id,
+                        name=team_name,
+                        captain_id=captains[captain_email],
+                        category=CategoryType.MARATHON)
+            teams.append(team)
 
     session.add_all(teams)
     session.commit()
-    logger.info(f"Created {len(teams)} mock teams")
+    logger.info(f"Created {len(teams)} teams with captains")
+
+    # Now update the captains with their team IDs
+    teams_by_name = {}
+    for team in session.exec(select(Team)):
+        teams_by_name[team.name] = team.id
+
+    for team_name, captain_email in captain_emails.items():
+        if team_name in teams_by_name:
+            captain = session.exec(
+                select(Participant).where(
+                    Participant.email == captain_email)).first()
+            if captain:
+                captain.team_id = teams_by_name[team_name]
+                session.add(captain)
+
+    session.commit()
+    logger.info("Updated captain participants with their team IDs")
 
 
-def import_mock_participants(session: Session):
-    """Import mock participant data."""
-    # Check if participants already exist
-    existing_count = session.exec(select(Participant)).first()
+def import_mock_users(session: Session):
+    """Import mock user data."""
+    # Check if users already exist
+    existing_count = session.exec(select(User)).first()
     if existing_count:
-        logger.info("Participants already exist in database, skipping import")
+        logger.info("Users already exist in database, skipping import")
+        return
+
+    # Create mock users
+    users = [
+        # Regular users (linked to participants later)
+        User(first_name="John",
+             last_name="Smith",
+             email="john.smith@example.com",
+             hashed_password=bcrypt.hashpw("password123".encode(),
+                                           bcrypt.gensalt()).decode(),
+             role=UserRole.USER,
+             confirmed_at=datetime.now()),
+        User(first_name="Emily",
+             last_name="Johnson",
+             email="emily.j@example.com",
+             hashed_password=bcrypt.hashpw("password123".encode(),
+                                           bcrypt.gensalt()).decode(),
+             role=UserRole.USER,
+             confirmed_at=datetime.now()),
+        User(first_name="Michael",
+             last_name="Brown",
+             email="michael.b@example.com",
+             hashed_password=bcrypt.hashpw("password123".encode(),
+                                           bcrypt.gensalt()).decode(),
+             role=UserRole.USER,
+             confirmed_at=datetime.now()),
+        User(first_name="Sarah",
+             last_name="Davis",
+             email="sarah.d@example.com",
+             hashed_password=bcrypt.hashpw("password123".encode(),
+                                           bcrypt.gensalt()).decode(),
+             role=UserRole.USER,
+             confirmed_at=datetime.now()),
+        User(first_name="David",
+             last_name="Wilson",
+             email="david.w@example.com",
+             hashed_password=bcrypt.hashpw("password123".encode(),
+                                           bcrypt.gensalt()).decode(),
+             role=UserRole.USER),
+        User(first_name="Jessica",
+             last_name="Lee",
+             email="jessica.l@example.com",
+             hashed_password=bcrypt.hashpw("password123".encode(),
+                                           bcrypt.gensalt()).decode(),
+             role=UserRole.USER,
+             confirmed_at=datetime.now()),
+        User(first_name="Robert",
+             last_name="Taylor",
+             email="robert.t@example.com",
+             hashed_password=bcrypt.hashpw("password123".encode(),
+                                           bcrypt.gensalt()).decode(),
+             role=UserRole.USER,
+             confirmed_at=datetime.now()),
+        User(first_name="Jennifer",
+             last_name="Garcia",
+             email="jennifer.g@example.com",
+             hashed_password=bcrypt.hashpw("password123".encode(),
+                                           bcrypt.gensalt()).decode(),
+             role=UserRole.USER,
+             confirmed_at=datetime.now()),
+        User(first_name="Daniel",
+             last_name="Martinez",
+             email="daniel.m@example.com",
+             hashed_password=bcrypt.hashpw("password123".encode(),
+                                           bcrypt.gensalt()).decode(),
+             role=UserRole.USER),
+        User(first_name="Thomas",
+             last_name="Wright",
+             email="thomas.w@example.com",
+             hashed_password=bcrypt.hashpw("password123".encode(),
+                                           bcrypt.gensalt()).decode(),
+             role=UserRole.USER,
+             confirmed_at=datetime.now()),
+        User(first_name="Rebecca",
+             last_name="Chen",
+             email="rebecca.c@example.com",
+             hashed_password=bcrypt.hashpw("password123".encode(),
+                                           bcrypt.gensalt()).decode(),
+             role=UserRole.USER,
+             confirmed_at=datetime.now()),
+        User(first_name="Lucas",
+             last_name="Park",
+             email="lucas.p@example.com",
+             hashed_password=bcrypt.hashpw("password123".encode(),
+                                           bcrypt.gensalt()).decode(),
+             role=UserRole.USER),
+        User(first_name="Jane",
+             last_name="Doe",
+             email="jane.doe@example.com",
+             hashed_password=bcrypt.hashpw("password123".encode(),
+                                           bcrypt.gensalt()).decode(),
+             role=UserRole.USER,
+             confirmed_at=datetime.now()),
+        User(first_name="Alex",
+             last_name="Turner",
+             email="alex.t@example.com",
+             hashed_password=bcrypt.hashpw("password123".encode(),
+                                           bcrypt.gensalt()).decode(),
+             role=UserRole.USER),
+        User(first_name="Sarah",
+             last_name="Connor",
+             email="sarah.c@example.com",
+             hashed_password=bcrypt.hashpw("password123".encode(),
+                                           bcrypt.gensalt()).decode(),
+             role=UserRole.USER,
+             confirmed_at=datetime.now()),
+        # Admin user
+        User(first_name="Admin",
+             last_name="User",
+             email="admin@example.com",
+             hashed_password=bcrypt.hashpw("admin123".encode(),
+                                           bcrypt.gensalt()).decode(),
+             role=UserRole.ADMIN,
+             confirmed_at=datetime.now()),
+        # Moderator user
+        User(first_name="Mod",
+             last_name="User",
+             email="moderator@example.com",
+             hashed_password=bcrypt.hashpw("mod123".encode(),
+                                           bcrypt.gensalt()).decode(),
+             role=UserRole.MODERATOR,
+             confirmed_at=datetime.now())
+    ]
+
+    session.add_all(users)
+    session.commit()
+    logger.info(f"Created {len(users)} mock users")
+
+    return {user.email: user.id for user in users}
+
+
+def import_mock_comp_vouchers(session: Session):
+    """Import mock competition vouchers."""
+    # Check if vouchers already exist
+    existing_count = session.exec(select(CompVoucher)).first()
+    if existing_count:
+        logger.info(
+            "Competition vouchers already exist in database, skipping import")
+        return
+
+    # Get the competition
+    comp = session.exec(
+        select(Competition).where(Competition.name == MOCK_COMP_NAME)).first()
+    if not comp:
+        logger.error("Mock competition not found. Cannot create vouchers.")
+        return
+
+    # Create mock vouchers
+    voucher_data = [{
+        "email": "john.smith@example.com",
+        "code": 1001
+    }, {
+        "email": "emily.j@example.com",
+        "code": 1002
+    }, {
+        "email": "michael.b@example.com",
+        "code": 1003
+    }, {
+        "email": "sarah.d@example.com",
+        "code": 2001
+    }, {
+        "email": "jessica.l@example.com",
+        "code": 2003
+    }, {
+        "email": "robert.t@example.com",
+        "code": 3001
+    }, {
+        "email": "jennifer.g@example.com",
+        "code": 3002
+    }, {
+        "email": "thomas.w@example.com",
+        "code": 4001
+    }, {
+        "email": "rebecca.c@example.com",
+        "code": 4002
+    }, {
+        "email": "jane.doe@example.com",
+        "code": 5001
+    }, {
+        "email": "sarah.c@example.com",
+        "code": 5003
+    }]
+
+    vouchers = []
+    for data in voucher_data:
+        voucher = CompVoucher(
+            email=data["email"],
+            code=data["code"],
+            competition_id=comp.id,
+            code_used_at=datetime.now(
+            )  # All vouchers are used in our mock data
+        )
+        vouchers.append(voucher)
+
+    session.add_all(vouchers)
+    session.commit()
+    logger.info(f"Created {len(vouchers)} mock competition vouchers")
+
+    return {v.email: v.id for v in vouchers}
+
+
+def import_mock_temp_captains(session: Session):
+    """Create temporary captain participants first."""
+    # Check if captains already exist
+    existing_captains = session.exec(select(Participant).limit(1)).first()
+    if existing_captains:
+        logger.info("Participants already exist, skipping captain creation")
+        return
+
+    # Get the competition
+    comp = session.exec(
+        select(Competition).where(Competition.name == MOCK_COMP_NAME)).first()
+    if not comp:
+        logger.error("Mock competition not found. Cannot create captains.")
+        return
+
+    # Create just the captain participants (one for each team)
+    captain_data = [{
+        "email": "john.smith@example.com",
+        "first_name": "John",
+        "last_name": "Smith",
+        "team_name": "Rock Stars"
+    }, {
+        "email": "sarah.d@example.com",
+        "first_name": "Sarah",
+        "last_name": "Davis",
+        "team_name": "Boulderers"
+    }, {
+        "email": "robert.t@example.com",
+        "first_name": "Robert",
+        "last_name": "Taylor",
+        "team_name": "Flash Force"
+    }, {
+        "email": "thomas.w@example.com",
+        "first_name": "Thomas",
+        "last_name": "Wright",
+        "team_name": "Grip Masters"
+    }, {
+        "email": "jessica.l@example.com",
+        "first_name": "Jessica",
+        "last_name": "Lee",
+        "team_name": "The Climbers"
+    }, {
+        "email": "lucas.p@example.com",
+        "first_name": "Lucas",
+        "last_name": "Park",
+        "team_name": "Ramblers"
+    }]
+
+    # Get user IDs
+    users = {}
+    user_results = session.exec(select(User))
+    for user in user_results:
+        users[user.email] = user.id
+
+    # Create captain participants
+    captains = []
+    for data in captain_data:
+        if data["email"] in users:
+            captain = Participant(competition_id=comp.id,
+                                  user_id=users[data["email"]],
+                                  first_name=data["first_name"],
+                                  last_name=data["last_name"],
+                                  email=data["email"],
+                                  solo_entry=False)
+            captains.append(captain)
+
+    session.add_all(captains)
+    session.commit()
+    logger.info(f"Created {len(captains)} captain participants")
+
+
+def import_mock_remaining_participants(session: Session):
+    """Import the remaining participants."""
+    # Get existing participants count
+    existing_count = session.exec(select(Participant)).all()
+    if len(existing_count) > 6:  # We already have more than just captains
+        logger.info("Additional participants already exist, skipping import")
         return
 
     # Get the competition
@@ -134,6 +438,12 @@ def import_mock_participants(session: Session):
         logger.error("Mock competition not found. Cannot create participants.")
         return
 
+    # Get user IDs
+    users = {}
+    user_results = session.exec(select(User))
+    for user in user_results:
+        users[user.email] = user.id
+
     # Get teams
     teams = {}
     team_results = session.exec(
@@ -141,140 +451,112 @@ def import_mock_participants(session: Session):
     for team in team_results:
         teams[team.name] = team.id
 
-    if not teams:
-        logger.error(
-            "No teams found for the competition. Cannot create participants.")
-        return
+    # Get existing participant emails to avoid duplicates
+    existing_emails = []
+    for participant in existing_count:
+        existing_emails.append(participant.email)
 
-    # Create mock participants
-    participants = [
+    # Create remaining team participants
+    remaining_team_members = [
         # Rock Stars team
-        Participant(competition_id=comp.id,
-                    team_id=teams["Rock Stars"],
-                    first_name="John",
-                    last_name="Smith",
-                    email="john.smith@example.com",
-                    solo_entry=False,
-                    club_member=True,
-                    membership_number="RS001"),
-        Participant(competition_id=comp.id,
-                    team_id=teams["Rock Stars"],
-                    first_name="Emily",
-                    last_name="Johnson",
-                    email="emily.j@example.com",
-                    solo_entry=False,
-                    club_member=True,
-                    membership_number="RS002"),
-        Participant(competition_id=comp.id,
-                    team_id=teams["Rock Stars"],
-                    first_name="Michael",
-                    last_name="Brown",
-                    email="michael.b@example.com",
-                    solo_entry=False,
-                    club_member=True,
-                    membership_number="RS003"),
+        {
+            "email": "emily.j@example.com",
+            "first_name": "Emily",
+            "last_name": "Johnson",
+            "team_name": "Rock Stars"
+        },
+        {
+            "email": "michael.b@example.com",
+            "first_name": "Michael",
+            "last_name": "Brown",
+            "team_name": "Rock Stars"
+        },
+        {
+            "email": "david.w@example.com",
+            "first_name": "David",
+            "last_name": "Wilson",
+            "team_name": "Rock Stars"
+        },
 
         # Boulderers team
-        Participant(competition_id=comp.id,
-                    team_id=teams["Boulderers"],
-                    first_name="Sarah",
-                    last_name="Davis",
-                    email="sarah.d@example.com",
-                    solo_entry=False,
-                    club_member=True,
-                    membership_number="BD001"),
-        Participant(competition_id=comp.id,
-                    team_id=teams["Boulderers"],
-                    first_name="David",
-                    last_name="Wilson",
-                    email="david.w@example.com",
-                    solo_entry=False,
-                    club_member=False),
-        Participant(competition_id=comp.id,
-                    team_id=teams["Boulderers"],
-                    first_name="Jessica",
-                    last_name="Lee",
-                    email="jessica.l@example.com",
-                    solo_entry=False,
-                    club_member=True,
-                    membership_number="BD003"),
+        {
+            "email": "jessica.l@example.com",
+            "first_name": "Jessica",
+            "last_name": "Lee",
+            "team_name": "Boulderers"
+        },
 
         # Flash Force team
-        Participant(competition_id=comp.id,
-                    team_id=teams["Flash Force"],
-                    first_name="Robert",
-                    last_name="Taylor",
-                    email="robert.t@example.com",
-                    solo_entry=False,
-                    club_member=True,
-                    membership_number="FF001"),
-        Participant(competition_id=comp.id,
-                    team_id=teams["Flash Force"],
-                    first_name="Jennifer",
-                    last_name="Garcia",
-                    email="jennifer.g@example.com",
-                    solo_entry=False,
-                    club_member=True,
-                    membership_number="FF002"),
-        Participant(competition_id=comp.id,
-                    team_id=teams["Flash Force"],
-                    first_name="Daniel",
-                    last_name="Martinez",
-                    email="daniel.m@example.com",
-                    solo_entry=False,
-                    club_member=False),
+        {
+            "email": "jennifer.g@example.com",
+            "first_name": "Jennifer",
+            "last_name": "Garcia",
+            "team_name": "Flash Force"
+        },
+        {
+            "email": "daniel.m@example.com",
+            "first_name": "Daniel",
+            "last_name": "Martinez",
+            "team_name": "Flash Force"
+        },
 
         # Ramblers team
-        Participant(competition_id=comp.id,
-                    team_id=teams["Ramblers"],
-                    first_name="Thomas",
-                    last_name="Wright",
-                    email="thomas.w@example.com",
-                    solo_entry=False,
-                    club_member=True,
-                    membership_number="RM001"),
-        Participant(competition_id=comp.id,
-                    team_id=teams["Ramblers"],
-                    first_name="Rebecca",
-                    last_name="Chen",
-                    email="rebecca.c@example.com",
-                    solo_entry=False,
-                    club_member=True,
-                    membership_number="RM002"),
-        Participant(competition_id=comp.id,
-                    team_id=teams["Ramblers"],
-                    first_name="Lucas",
-                    last_name="Park",
-                    email="lucas.p@example.com",
-                    solo_entry=False,
-                    club_member=False),
-
-        # Solo participants (Boulder Beasts category)
-        Participant(competition_id=comp.id,
-                    first_name="Jane",
-                    last_name="Doe",
-                    email="jane.doe@example.com",
-                    solo_entry=True,
-                    club_member=True,
-                    membership_number="BB001"),
-        Participant(competition_id=comp.id,
-                    first_name="Alex",
-                    last_name="Turner",
-                    email="alex.t@example.com",
-                    solo_entry=True,
-                    club_member=False),
-        Participant(competition_id=comp.id,
-                    first_name="Sarah",
-                    last_name="Connor",
-                    email="sarah.c@example.com",
-                    solo_entry=True,
-                    club_member=True,
-                    membership_number="BB003")
+        {
+            "email": "rebecca.c@example.com",
+            "first_name": "Rebecca",
+            "last_name": "Chen",
+            "team_name": "Ramblers"
+        }
     ]
 
-    session.add_all(participants)
+    # Create solo participants
+    solo_participants = [{
+        "email": "jane.doe@example.com",
+        "first_name": "Jane",
+        "last_name": "Doe",
+        "solo_entry": True
+    }, {
+        "email": "alex.t@example.com",
+        "first_name": "Alex",
+        "last_name": "Turner",
+        "solo_entry": True
+    }, {
+        "email": "sarah.c@example.com",
+        "first_name": "Sarah",
+        "last_name": "Connor",
+        "solo_entry": True
+    }]
+
+    # Add all participants
+    new_participants = []
+
+    # Add team members
+    for data in remaining_team_members:
+        if data["email"] not in existing_emails and data["email"] in users:
+            if data["team_name"] in teams:
+                participant = Participant(competition_id=comp.id,
+                                          user_id=users[data["email"]],
+                                          first_name=data["first_name"],
+                                          last_name=data["last_name"],
+                                          email=data["email"],
+                                          team_id=teams[data["team_name"]],
+                                          solo_entry=False)
+                new_participants.append(participant)
+
+    # Add solo participants
+    for data in solo_participants:
+        if data["email"] not in existing_emails and data["email"] in users:
+            participant = Participant(competition_id=comp.id,
+                                      user_id=users[data["email"]],
+                                      first_name=data["first_name"],
+                                      last_name=data["last_name"],
+                                      email=data["email"],
+                                      solo_entry=True)
+            new_participants.append(participant)
+
+    session.add_all(new_participants)
     session.commit()
-    logger.info(f"Created {len(participants)} mock participants")
+    logger.info(f"Created {len(new_participants)} additional participants")
 
 
 def import_mock_ascents(session: Session):
@@ -499,18 +781,21 @@ def import_mock_ascents(session: Session):
                 "beginner", 5) + get_routes_by_difficulty("intermediate", 5)
 
     # Solo participants - various skills
-    for i, member in enumerate(participants_by_team["Solo"]):
-        if i % 3 == 0:  # Every 3rd solo participant
-            climber_routes[member] = get_routes_by_difficulty(
-                "intermediate", 7) + get_routes_by_difficulty("beginner", 5)
-        elif i % 3 == 1:  # Every 3rd+1 solo participant
-            climber_routes[member] = get_routes_by_difficulty(
-                "advanced", 6) + get_routes_by_difficulty("intermediate", 4)
-        else:  # Every 3rd+2 solo participant
-            climber_routes[member] = get_routes_by_difficulty(
-                "advanced", 3) + get_routes_by_difficulty(
-                    "intermediate", 5) + get_routes_by_difficulty(
-                        "beginner", 4)
+    if "Solo" in participants_by_team:
+        for i, member in enumerate(participants_by_team["Solo"]):
+            if i % 3 == 0:  # Every 3rd solo participant
+                climber_routes[member] = get_routes_by_difficulty(
+                    "intermediate", 7) + get_routes_by_difficulty(
+                        "beginner", 5)
+            elif i % 3 == 1:  # Every 3rd+1 solo participant
+                climber_routes[member] = get_routes_by_difficulty(
+                    "advanced", 6) + get_routes_by_difficulty(
+                        "intermediate", 4)
+            else:  # Every 3rd+2 solo participant
+                climber_routes[member] = get_routes_by_difficulty(
+                    "advanced", 3) + get_routes_by_difficulty(
+                        "intermediate", 5) + get_routes_by_difficulty(
+                            "beginner", 4)
 
     # Create ascent objects based on the mapped routes
     all_ascents = []
@@ -646,8 +931,16 @@ def import_mock_scoring_config(session: Session):
 def initialize_mock_competition_data(session: Session):
     """Initialize the database with mock competition data."""
     import_mock_competitions(session)
-    import_mock_teams(session)
-    import_mock_participants(session)
+    import_mock_users(session)
+    import_mock_comp_vouchers(session)
+
+    # New approach - create temporary captains first
+    import_mock_temp_captains(
+        session)  # Create a minimal set of participants to be captains
+    import_mock_teams(session)  # Create teams with captains assigned
+    import_mock_remaining_participants(
+        session)  # Create the rest of the participants
+
     import_mock_ascents(session)
     import_mock_scoring_config(session)
 

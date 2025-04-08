@@ -6,6 +6,7 @@ from typing import Optional, List, TYPE_CHECKING
 from datetime import datetime, UTC
 from uuid import UUID, uuid4
 from enum import Enum
+import sqlalchemy.schema
 
 from database.models.scoring import (BasePoints, VolumeBonus,
                                      UniqueAscentBonus, TeamAscentBonus,
@@ -13,7 +14,8 @@ from database.models.scoring import (BasePoints, VolumeBonus,
 
 # Type hints for forward references
 if TYPE_CHECKING:
-    from database.models.crags import Route
+    from database.models.crags import Crag, Route
+    from database.models.accounts import User, CompVoucher
 
 
 class CompetitionStatus(str, Enum):
@@ -62,6 +64,9 @@ class Competition(SQLModel, table=True):
         back_populates="competition")
     master_grade_bonus: Optional["MasterGradeBonus"] = Relationship(
         back_populates="competition")
+    comp_vouchers: List["CompVoucher"] = Relationship(
+        back_populates="competition")
+    crag: "Crag" = Relationship(back_populates="competitions")
 
 
 class CompetitionCategory(SQLModel, table=True):
@@ -88,6 +93,16 @@ class Team(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     competition_id: UUID = Field(foreign_key="competitions.id")
     name: str
+    # We can't have a direct relationship to the captain as it would
+    # create a circular dependency, so we'll handle it through named
+    # constraints
+    captain_id: UUID = Field(
+        sa_column_kwargs={
+            "foreign_keys": [
+                sqlalchemy.schema.ForeignKey("participants.id",
+                                             name="fk_team_captain_id")
+            ]
+        })
     category: str = CategoryType.MARATHON.value
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -96,9 +111,6 @@ class Team(SQLModel, table=True):
     competition: Competition = Relationship(back_populates="teams")
     participants: List["Participant"] = Relationship(back_populates="team")
     ascents: List["Ascent"] = Relationship(back_populates="team")
-    # We can't have a direct relationship to the captain as it would
-    # create a circular dependency, so we'll handle it through properties
-    captain_id: Optional[UUID] = None
 
 
 class Participant(SQLModel, table=True):
@@ -107,19 +119,22 @@ class Participant(SQLModel, table=True):
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     competition_id: UUID = Field(foreign_key="competitions.id")
+    user_id: UUID = Field(foreign_key="users.id")
     first_name: str
     last_name: str
     email: str
     team_id: Optional[UUID] = Field(default=None, foreign_key="teams.id")
     solo_entry: bool = False
-    club_member: bool = False
-    membership_number: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Relationships
     competition: Competition = Relationship(back_populates="participants")
     team: Optional[Team] = Relationship(back_populates="participants")
     ascents: List["Ascent"] = Relationship(back_populates="participant")
+    user: "User" = Relationship(back_populates="participants")
+    comp_voucher: Optional["CompVoucher"] = Relationship(
+        back_populates="participant",
+        sa_relationship_kwargs={"uselist": False})
 
 
 class Ascent(SQLModel, table=True):

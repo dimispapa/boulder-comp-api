@@ -8,7 +8,7 @@ from typing import Dict, Any, Optional
 import os
 import uuid
 
-from database.base import get_db
+from database.management.base import get_db
 from database.models.media import CompetitionPhoto
 from database.crud.media import (get_photos_by_competition,
                                  create_or_update_photo, approve_photo,

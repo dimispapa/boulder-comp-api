@@ -9,7 +9,7 @@ from pathlib import Path
 from sqlmodel import Session, select
 
 from utils.loggers import logger
-from database.base import get_db_session
+from database.management.base import get_db_session
 
 
 def import_boulder_sector_mappings(session: Session):

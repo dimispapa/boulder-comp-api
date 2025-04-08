@@ -5,12 +5,12 @@ Reset the database, recreate all tables, and populate with mock data.
 import sys
 import argparse
 
-from database import create_db_and_tables, get_db_session
+from database.management.base import create_db_and_tables, get_db_session
 from utils.loggers import logger
 
 # Import the standalone modules
-from database.init_crag_core import import_boulder_route_data
-from database.init_boulder_photos import reupload_boulder_photos
+from database.management.init_crag_core import import_boulder_route_data
+from database.management.init_boulder_photos import reupload_boulder_photos
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -71,7 +71,8 @@ if __name__ == "__main__":
     # Finally, import mock competition data if requested
     if args.mock_comp:
         logger.info("Importing mock competition data...")
-        from database.init_mock_comp import initialize_mock_competition_data
+        from database.management.init_mock_comp import (
+            initialize_mock_competition_data)
 
         with get_db_session() as session:
             # Import mock competition data

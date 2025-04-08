@@ -13,7 +13,7 @@ from pathlib import Path
 from datetime import datetime
 
 from scraper.models import Crag, Boulder, Route, BoulderPhoto, RouteLineData
-from database.base import get_db_session
+from database.management.base import get_db_session
 from scraper.data_storage import store_crag_data
 from utils.loggers import logger
 

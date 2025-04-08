@@ -1,0 +1,141 @@
+digraph MediaStorageFlow {
+    // Graph settings
+    rankdir=TB;
+    splines=ortho;
+    nodesep=0.8;
+    ranksep=0.8;
+    pad=0.5;
+    
+    // Node styles
+    node [shape=box, style="rounded,filled", fontname="Arial", fontsize=12, fontcolor=black, margin="0.2,0.1", height=0.6, width=2.2];
+    edge [fontname="Arial", fontsize=10, fontcolor=black, color="#666666"];
+    
+    // Color scheme
+    bgcolor="white";
+    
+    // Nodes by category with colors
+    // Blue nodes - Media Source
+    node [fillcolor="#D6EAF8"] 
+    SourceWebsite [label="Source Website\n(27crags)"];
+    UserUpload [label="User Photo\nUpload"];
+    
+    // Green nodes - Processing
+    node [fillcolor="#D5F5E3"]
+    ScraperExtraction [label="Scraper Extracts\nPhoto & Metadata"];
+    ProcessUserUpload [label="Process User\nUpload"];
+    ModerateContent [label="Content\nModeration"];
+    
+    // Orange nodes - Storage
+    node [fillcolor="#FDEBD0"]
+    CloudinaryUploader [label="Cloudinary\nUploader Class"];
+    CloudinaryStorage [label="Cloudinary\nStorage"];
+    
+    // Purple nodes - Database
+    node [fillcolor="#E8DAEF"]
+    StoreMetadata [label="Store Metadata\nin Database"];
+    BoulderPhotosTable [label="Boulder Photos\nTable"];
+    CompPhotosTable [label="Competition Photos\nTable"];
+    
+    // Teal nodes - Frontend/Display
+    node [fillcolor="#D1F2EB"]
+    BoulderPhotoDisplay [label="Boulder Photo\nDisplay"];
+    CompPhotoGallery [label="Competition Photo\nGallery"];
+    
+    // Decision nodes (diamonds)
+    node [shape=diamond, fillcolor="#FAD7A0"]
+    PhotoType [label="Photo\nType?"];
+    ModApproval [label="Approved?"];
+    
+    // Endpoints
+    node [shape=ellipse, fillcolor="#F5B7B1"]
+    BoulderEnd [label="Boulder\nPhotos"];
+    CompEnd [label="Competition\nPhotos"];
+    
+    // Flow for Boulder Photos
+    SourceWebsite -> ScraperExtraction;
+    ScraperExtraction -> PhotoType;
+    
+    PhotoType -> CloudinaryUploader [label="Boulder"];
+    CloudinaryUploader -> CloudinaryStorage;
+    CloudinaryStorage -> StoreMetadata;
+    StoreMetadata -> BoulderPhotosTable [label="Boulder photos"];
+    BoulderPhotosTable -> BoulderPhotoDisplay;
+    BoulderPhotoDisplay -> BoulderEnd;
+    
+    // Flow for Competition Photos
+    UserUpload -> ProcessUserUpload;
+    ProcessUserUpload -> PhotoType [label="Competition"];
+    PhotoType -> ModerateContent [label="Competition"];
+    ModerateContent -> ModApproval;
+    
+    ModApproval -> CloudinaryUploader [label="Yes"];
+    ModApproval -> CompEnd [label="No", style=dashed];
+    
+    StoreMetadata -> CompPhotosTable [label="Competition photos"];
+    CompPhotosTable -> CompPhotoGallery;
+    CompPhotoGallery -> CompEnd;
+    
+    // Subgraphs for logical grouping
+    subgraph cluster_photo_sources {
+        label="Photo Sources";
+        style=dashed;
+        color="#AAAAAA";
+        SourceWebsite;
+        UserUpload;
+    }
+    
+    subgraph cluster_processing {
+        label="Processing & Moderation";
+        style=dashed;
+        color="#AAAAAA";
+        ScraperExtraction;
+        ProcessUserUpload;
+        PhotoType;
+        ModerateContent;
+        ModApproval;
+    }
+    
+    subgraph cluster_storage {
+        label="Storage & Metadata";
+        style=dashed;
+        color="#AAAAAA";
+        CloudinaryUploader;
+        CloudinaryStorage;
+        StoreMetadata;
+        BoulderPhotosTable;
+        CompPhotosTable;
+    }
+    
+    subgraph cluster_display {
+        label="Display & Presentation";
+        style=dashed;
+        color="#AAAAAA";
+        BoulderPhotoDisplay;
+        CompPhotoGallery;
+        BoulderEnd;
+        CompEnd;
+    }
+    
+    // Legend
+    subgraph cluster_legend {
+        label="Legend";
+        style=dashed;
+        color="#AAAAAA";
+        
+        legend_source [label="Media Source", fillcolor="#D6EAF8"];
+        legend_process [label="Processing", fillcolor="#D5F5E3"];
+        legend_storage [label="Storage", fillcolor="#FDEBD0"];
+        legend_db [label="Database", fillcolor="#E8DAEF"];
+        legend_display [label="Frontend/Display", fillcolor="#D1F2EB"];
+        legend_decision [label="Decision", shape=diamond, fillcolor="#FAD7A0"];
+        legend_endpoint [label="Endpoint", shape=ellipse, fillcolor="#F5B7B1"];
+        
+        // Invisible edges to arrange legend items
+        legend_source -> legend_process [style=invis];
+        legend_process -> legend_storage [style=invis];
+        legend_storage -> legend_db [style=invis];
+        legend_db -> legend_display [style=invis];
+        legend_display -> legend_decision [style=invis];
+        legend_decision -> legend_endpoint [style=invis];
+    }
+} 

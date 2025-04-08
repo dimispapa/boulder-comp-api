@@ -6,10 +6,11 @@ from typing import Optional
 from sqlmodel import Session
 from scoring.models import ScoreCalculationRequest
 from dotenv import load_dotenv
-from database.base import get_db
+from database.management.base import get_db
 from database.crud.scoring import (get_all_marathon_rankings,
                                    get_all_boulder_beasts_rankings)
-from database.crud.competitions import get_competition_by_id
+from database.crud.competitions import (get_competition_by_id,
+                                        get_all_competitions)
 from utils.loggers import logger
 from tasks.scoring_tasks import calculate_scores
 
@@ -51,9 +52,7 @@ async def start_score_calculation(request: ScoreCalculationRequest,
 
         # Get competition categories
         categories = comp.categories
-        category_types = [
-            cat.category_type for cat in categories
-        ]
+        category_types = [cat.category_type for cat in categories]
 
         # Validate category if specified
         if request.category and request.category not in category_types:
@@ -143,9 +142,7 @@ async def get_competition_rankings(comp_id: str,
 
         # Get active competition categories
         categories = comp.categories
-        category_types = [
-            cat.category_type for cat in categories
-        ]
+        category_types = [cat.category_type for cat in categories]
 
         # Validate category if specified
         if category and category not in category_types:
@@ -301,3 +298,59 @@ async def get_competition_rankings(comp_id: str,
         logger.error(f"Failed to get rankings: {str(e)}")
         raise HTTPException(status_code=500,
                             detail=f"Failed to get rankings: {str(e)}")
+
+
+@router.get("/competitions", response_model=dict)
+async def list_competitions(session: Session = Depends(get_db)):
+    """
+    Get a list of all competitions.
+
+    Args:
+        session (Session): Database session
+
+    Returns:
+        dict: List of competitions with basic details
+    """
+    try:
+        logger.info("Fetching list of all competitions")
+
+        # Get all competitions from the database
+        competitions = get_all_competitions(session)
+
+        if not competitions:
+            logger.info("No competitions found in the database")
+            return {"status": "success", "competitions": []}
+
+        # Convert to dictionary format
+        competitions_data = []
+        for comp in competitions:
+            competitions_data.append({
+                "id":
+                str(comp.id),
+                "name":
+                comp.name,
+                "display_name":
+                comp.display_name,
+                "categories":
+                [cat.category_type for cat in comp.categories],
+                "start_date":
+                comp.start_date.isoformat(),
+                "end_date":
+                comp.end_date.isoformat(),
+                "status":
+                comp.status,
+                "crag":
+                comp.crag,
+                "venue":
+                comp.venue or "N/A",
+                "description":
+                comp.description or "No description"
+            })
+
+        logger.info(f"Returning {len(competitions_data)} competitions")
+        return {"status": "success", "competitions": competitions_data}
+
+    except Exception as e:
+        logger.error(f"Failed to get competitions: {str(e)}")
+        raise HTTPException(status_code=500,
+                            detail=f"Failed to get competitions: {str(e)}")

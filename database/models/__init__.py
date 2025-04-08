@@ -16,5 +16,7 @@ from database.models.scoring import (  # noqa: F401
     BoulderBeastsRanking,
 )
 from database.models.media import CompetitionPhoto, BoulderPhoto  # noqa: F401
+from database.models.accounts import (  # noqa: F401
+    User, CompVoucher)
 
 # This allows imports like: from database.models import Crag, Sector, etc.

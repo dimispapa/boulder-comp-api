@@ -11,7 +11,7 @@ from typing import Dict, Any
 from sqlmodel import Session
 
 from utils.loggers import logger
-from database.base import get_db
+from database.management.base import get_db
 from tasks.scraper_tasks import scrape_crag_task, store_crag_data_task
 from utils.general_utils import (extract_datetime_from_filename,
                                  get_most_recent_json_file)

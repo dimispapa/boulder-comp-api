@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from typing import Optional
 import asyncio
 
-from database.base import get_db_session
+from database.management.base import get_db_session
 from database.crud.competitions import get_competition_by_id
 from utils.loggers import logger
 
