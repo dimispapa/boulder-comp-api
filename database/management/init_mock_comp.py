@@ -119,8 +119,7 @@ def import_mock_teams(session: Session):
         if captain_email in captains:
             team = Team(competition_id=comp.id,
                         name=team_name,
-                        captain_id=captains[captain_email],
-                        category=CategoryType.MARATHON)
+                        captain_id=captains[captain_email])
             teams.append(team)
 
     session.add_all(teams)
