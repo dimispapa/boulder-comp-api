@@ -5,6 +5,7 @@ amqp==5.3.1
 annotated-types==0.7.0
 anyio==4.9.0
 attrs==25.3.0
+bcrypt==4.3.0
 beautifulsoup4==4.13.3
 billiard==4.2.1
 bs4==0.0.2
