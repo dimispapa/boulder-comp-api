@@ -4,57 +4,155 @@ API service for the Bouldering Festival Competition app, providing score calcula
 
 ## Features
 
-- **Score Calculation**: Calculate competition scores based on team ascents.
-- **Leaderboard Generation**: Create and update real-time leaderboards.
-- **27crags Scraping**: Scrape boulder data from 27crags to update competition data.
-- **Background Task Processing**: Using Celery for asynchronous task execution.
-- **Supabase Integration**: Connect to the main app's Supabase database.
-- **Media Management**: Cloudinary-based image hosting with optimization and access control.
+- **FastAPI Backend**: High-performance, easy-to-use API framework.
+- **Celery Integration**: Background task processing for resource-intensive operations.
+- **PostgreSQL Database**: Using SQLModel ORM for a type-safe, Pydantic-compatible database interface.
+- **NeonDB Integration**: Connect to a PostgreSQL-compatible serverless database.
+- **Docker Support**: Containerized setup for easy deployment and development.
+- **Asynchronous Processing**: Handle concurrent requests efficiently.
+- **Cloudinary Integration**: For media storage and processing.
+- **Redis**: For task queueing and caching.
 
-## Tech Stack
+## Technology Stack
 
-- **FastAPI**: Modern, high-performance web framework for building APIs
-- **Celery**: Asynchronous task queue for background processing
+- **FastAPI**: Modern, fast API framework
+- **Celery**: Distributed task queue
 - **Redis**: Message broker for Celery
-- **Supabase**: Database integration with the main app
-- **Python 3.12+**: Core programming language
-- **Docker**: Container platform for consistent development and deployment
+- **SQLModel**: ORM for PostgreSQL database
+- **NeonDB**: Serverless PostgreSQL database
+- **Docker & Docker Compose**: Containerization
+- **Cloudinary**: Cloud-based image management
+- **Playwright**: For web scraping automation
 
 ## Project Structure
 
 ```file
 boulder-comp-api/
-├── api/                  # FastAPI endpoints and route handlers
-├── scraper/              # 27crags scraping logic
-├── scoring/              # Score calculation logic
-├── tasks/                # Celery background tasks
-├── utils/                # Common utilities and helpers
-├── tests/                # Unit and integration tests
-│   └── testing.md        # Testing documentation and guidelines
-├── supabase/             # Supabase configuration and migrations
-├── docs/                 # Documentation and diagrams
-│   └── media_storage.md  # Media storage implementation details
-├── main.py               # FastAPI app entry point
-├── .env                  # Environment variables (not committed)
-├── docker-compose.yml    # Docker Compose configuration
-├── Dockerfile            # Docker configuration for FastAPI app
-├── Dockerfile.celery     # Docker configuration for Celery worker
-├── requirements.txt      # Python dependencies
-├── heroku.yml            # Heroku container deployment configuration
-├── Procfile              # Heroku process definitions
-├── app.json              # Heroku app configuration
-└── .dockerignore         # Files to exclude from Docker builds
+├── api/                            # FastAPI endpoints and route handlers
+├── scraper/                        # 27crags scraping logic
+│   └── README.md                   # Scraper documentation and implementation details
+├── scoring/                        # Score calculation logic
+│   └── README.md                   # Scoring system documentation and calculation details
+├── tasks/                          # Celery background tasks
+├── utils/                          # Common utilities and helpers
+├── tests/                          # Unit and integration tests
+│   └── testing.md                  # Testing documentation and guidelines
+├── supabase/                       # Supabase configuration and migrations
+├── docs/                           # Documentation and diagrams
+│   ├── media/                      # Media storage documentation and diagrams
+│   │   ├── README.md               # Media storage implementation details
+│   │   └── media_storage_flow.png  # Media storage flow diagram
+│   ├── scoring/                    # Scoring system diagrams
+│   │   └── scoring_flow.png        # Scoring process flow diagram
+│   ├── scraper/                    # Scraper diagrams
+│   │   └── scraper_flow.png        # Scraper process flow diagram
+│   └── database/                   # Database diagrams
+│       └── erd.png                 # Entity relationship diagram
+├── main.py                         # FastAPI app entry point
+├── .env                            # Environment variables (not committed)
+├── docker-compose.yml              # Docker Compose configuration
+├── Dockerfile                      # Docker configuration for FastAPI app
+├── Dockerfile.celery               # Docker configuration for Celery worker
+├── requirements.txt                # Python dependencies
+├── heroku.yml                      # Heroku container deployment configuration
+├── Procfile                        # Heroku process definitions
+├── app.json                        # Heroku app configuration
+└── .dockerignore                   # Files to exclude from Docker builds
 ```
+
+## Key Documentation
+
+- [**Scoring System**](scoring/README.md): Detailed documentation of the competition scoring algorithm and implementation
+- [**Media Storage**](docs/media/README.md): Complete overview of the photo storage system, workflows, and security model
+- [**Scraper Architecture**](scraper/README.md): Comprehensive guide to the web scraping system for boulder data
+
+## Scoring Calculator
+
+The Boulder Competition API includes a sophisticated scoring calculator that computes rankings for both team-based (Marathon) and individual (Boulder Beasts) competition categories.
+
+### Key Features
+
+- **Team-Based Scoring**: Complex scoring algorithm for the Marathon category that includes:
+  - Base points for route difficulty
+  - Volume bonuses based on number of ascents
+  - Team ascent bonuses for routes completed by all team members
+  - Unique ascent bonuses for routes climbed only by one team
+  - Master grade bonuses for teams with most ascents at specific grades
+  - Score normalization based on team size
+
+- **Individual Scoring**: Simplified scoring for individual competitors (Boulder Beasts) that:
+  - Counts only the top 5 highest-scoring routes
+  - Applies base points based on route grades
+  - Generates rankings based on total points
+
+- **Interactive Results**: Detailed breakdowns of score components for transparency
+
+For complete details on the scoring system, including the mathematical formulas and implementation specifics, see the [Scoring System Documentation](scoring/README.md).
+
+## API and Task Integration
+
+The API is designed as a set of interconnected services that utilize Celery for handling resource-intensive operations asynchronously.
+
+### Core API Routes
+
+1. **Scraper Endpoints** (`/api/scraper`):
+   - `/start`: Start scraping a crag (default: "inia-droushia")
+   - `/store`: Store previously scraped data to the database
+   - `/list-files`: List all scraped data files, optionally filtered by crag name
+   - `/task/{task_id}`: Check status of a scraping or storage task
+   - `/crags`: List all available crags
+   - `/sectors/{crag_id}`: List all sectors for a specific crag
+
+2. **Scoring Endpoints** (`/api/scoring`):
+   - `/calculate`: Start calculating scores for a competition
+   - `/status/{task_id}`: Get the status of a score calculation task
+   - `/rankings/{comp_id}`: Get the latest rankings for a competition
+
+3. **Media Management** (`/api/media`):
+   - `/upload-boulder-photos/{crag_name}`: Upload boulder photos for a crag
+   - `/upload-competition-photos/{competition_id}`: Handle direct photo uploads from competition participants
+   - `/competition-photos/{competition_id}`: Get competition photos
+   - `/competition-photos/{photo_id}/approve`: Approve or reject a competition photo
+   - `/competition-photos/{photo_id}/feature`: Feature or unfeature a competition photo
+
+### Celery Integration
+
+API endpoints are designed to delegate resource-intensive tasks to Celery workers for asynchronous processing:
+
+1. **Task Delegation Pattern**:
+   ```python
+   @router.post("/start")
+   async def start_scraping(background_tasks: BackgroundTasks,
+                           crag_name: str = "inia-droushia") -> Dict[str, Any]:
+       # Use the registered task
+       task = scrape_crag_task.delay(crag_name)
+       return {
+           "status": "success",
+           "message": "Scraping task started",
+           "task_id": task.id,
+           "task_type": "scrape"
+       }
+   ```
+
+2. **Task Monitoring**:
+   - Status tracking endpoints (`/api/scraper/task/{task_id}`, `/api/scoring/status/{task_id}`)
+   - Detailed progress reporting and error handling
+
+3. **Common Celery Tasks**:
+   - **Scraping**: Asynchronous extraction of boulder data from 27crags
+   - **Data Storage**: Storing scraped data to the database
+   - **Scoring Calculation**: Computing competition rankings for Marathon and Boulder Beasts categories
+   - **Media Processing**: Uploading and processing photos to Cloudinary
+
+This architecture allows the API to remain responsive while handling computationally intensive operations efficiently in the background. Tasks can scale horizontally by adding more Celery workers as needed.
 
 ## Environment Variables
 
 Create a `.env` file in the root directory with the following variables:
 
 ```env
-# Supabase Configuration
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_ANON_KEY=your-api-key
-SUPABASE_SERVICE_ROLE_KEY=your-service-api-key
+# Database Configuration
+DATABASE_URL=postgresql://user:password@hostname:port/database
 
 # Redis Configuration (for Celery)
 REDIS_URL=redis://localhost:6379/0
@@ -67,6 +165,11 @@ ENVIRONMENT=development
 API_PREFIX=/api
 API_HOST=0.0.0.0
 API_PORT=8000
+
+# Cloudinary Configuration (for media uploads)
+CLOUDINARY_CLOUD_NAME=your_cloud_name
+CLOUDINARY_API_KEY=your_api_key
+CLOUDINARY_API_SECRET=your_api_secret
 ```
 
 For Heroku deployment, these variables should be set using the Heroku CLI or dashboard.
@@ -263,9 +366,9 @@ Common errors without `--build`:
 
 ## Database Design
 
-## 🗄️ Database Schema
+### 🗄️ Database Schema
 
-### 🧗 Bouldering Data Tables
+#### 🧗 Bouldering Data Tables
 
 #### `crags`
 
@@ -275,7 +378,7 @@ Common errors without `--build`:
 | `name`        | text         | Unique crag name                     |
 | `display_name`| text         | Formatted display name               |
 | `description` | text / null  | Optional crag description            |
-| `created_at`  | timestamp    | When added                           |
+| `inserted_at`  | timestamp    | When added                           |
 | `updated_at`  | timestamp    | Last updated                         |
 
 #### `sectors`
@@ -287,7 +390,7 @@ Common errors without `--build`:
 | `display_name`| text         | Formatted display name               |
 | `crag_id`     | FK → crags.id| Reference to parent crag             |
 | `description` | text / null  | Optional sector description          |
-| `created_at`  | timestamp    | When added                           |
+| `inserted_at`  | timestamp    | When added                           |
 | `updated_at`  | timestamp    | Last updated                         |
 
 #### `boulders`
@@ -299,9 +402,9 @@ Common errors without `--build`:
 | `display_name`| text           | Formatted display name               |
 | `url`         | text           | 27crags URL                          |
 | `sector_id`   | FK → sectors.id| Reference to sector                  |
-| `gps_postgis`  | GEOGRAPHY(POINT)| PostGIS formatted coordinates (POINT(lon lat))|
-| `gps_string`  | text           | Raw coordinates string (lat, lon)    |
-| `created_at`  | timestamp      | When added                           |
+| `gps_postgis` | text / null    | PostGIS formatted coordinates        |
+| `gps_string`  | text / null    | Raw coordinates string               |
+| `inserted_at`  | timestamp      | When added                           |
 | `updated_at`  | timestamp      | Last updated                         |
 
 #### `boulder_photos`
@@ -310,11 +413,12 @@ Common errors without `--build`:
 |--------------|--------------|--------------------------------------------|
 | `id`         | UUID / PK    | Unique photo ID                            |
 | `boulder_id` | FK → boulders.id | Linked boulder                        |
-| `url`        | text         | Original photo URL                         |
+| `source_url` | text         | Original source URL (where photo was scraped from) |
+| `order`      | int          | Order/position of the photo                |
 | `photo_id`   | text         | Photo identifier                           |
-| `storage_url`| text / null  | URL in Supabase Storage after upload       |
+| `storage_url`| text / null  | URL in Cloudinary after upload             |
 | `lines_data` | JSONB / null | Optional route line data                   |
-| `created_at` | timestamp    | When added                                 |
+| `inserted_at` | timestamp    | When added                                 |
 | `updated_at` | timestamp    | Last updated                               |
 
 #### `routes`
@@ -330,7 +434,7 @@ Common errors without `--build`:
 | `rating`     | float / null | Route rating                             |
 | `description`| text / null  | Route description                        |
 | `line_data`  | JSONB / null | Route line data                          |
-| `created_at` | timestamp    | When added                               |
+| `inserted_at` | timestamp    | When added                               |
 | `updated_at` | timestamp    | Last updated                             |
 
 #### `boulder_sector_mappings`
@@ -341,7 +445,7 @@ Common errors without `--build`:
 | `boulder_url` | text           | URL of boulder on 27crags           |
 | `sector_name` | text           | Name of the sector                  |
 | `sector_id`   | FK → sectors.id| Reference to sector                 |
-| `created_at`  | timestamp      | When added                          |
+| `inserted_at`  | timestamp      | When added                          |
 | `updated_at`  | timestamp      | Last updated                        |
 
 ---
@@ -356,335 +460,292 @@ Common errors without `--build`:
 | `name`        | text           | Name of the competition (e.g. "May 2025 Club Comp")         |
 | `crag_id`     | FK → crags.id  | Crag where the competition takes place                      |
 | `display_name`| text           | Formatted display name                                      |
-| `category`    | text[]         | Categories hosted (e.g. "marathon,boulder beasts")          |
-| `start_date`  | date           | Competition start date                                      |
-| `end_date`    | date           | Competition end date                                        |
-| `status`      | enum           | "ongoing" or "completed"                                    |
+| `start_date`  | datetime       | Competition start date                                      |
+| `end_date`    | datetime       | Competition end date                                        |
+| `status`      | enum           | Competition status: "upcoming", "ongoing", or "completed"   |
 | `description` | text / null    | Details about the competition                               |
 | `venue`       | text / null    | Location/venue of the event                                 |
-| `created_at`  | timestamp      | When added                                                  |
+| `inserted_at`  | timestamp      | When added                                                  |
 | `updated_at`  | timestamp      | Last updated                                                |
+
+#### `competition_categories`
+
+| Field           | Type                | Notes                                        |
+|-----------------|---------------------|----------------------------------------------|
+| `id`            | UUID / PK           | Unique category ID                           |
+| `competition_id`| FK → competitions.id| Competition this category belongs to         |
+| `category_type` | enum                | "marathon" or "boulder_beasts"               |
+| `name`          | text                | Category name                                |
+| `description`   | text / null         | Category description                         |
+| `display_order` | int                 | Order for display in UI                      |
+| `inserted_at`    | timestamp           | When added                                   |
+| `updated_at`    | timestamp           | Last updated                                 |
 
 #### `teams`
 
-| Field           | Type         | Notes                                                |
-|-----------------|--------------|------------------------------------------------------|
-| `id`            | UUID / PK    | Unique team ID                                       |
-| `competition_id`| FK → competitions.id | Competition this team is registered for      |
-| `name`          | text         | Team name                                            |
-| `captain_id`    | FK → participants.id | Optional (ID of the team captain)           |
-| `category`      | text         | Always `'marathon'` for team entries                 |
-| `paid`          | boolean      | Whether the team has been marked as paid             |
-| `created_at`    | timestamp    | Signup time                                          |
+| Field           | Type                | Notes                                        |
+|-----------------|---------------------|----------------------------------------------|
+| `id`            | UUID / PK           | Unique team ID                               |
+| `competition_id`| FK → competitions.id| Competition this team is registered for      |
+| `name`          | text                | Team name                                    |
+| `captain_id`    | FK → participants.id| Team captain (uses named FK constraint)      |
+| `category`      | text                | Competition category ("marathon")            |
+| `inserted_at`    | timestamp           | When added                                   |
+| `updated_at`    | timestamp           | Last updated                                 |
 
 #### `participants`
 
-| Field               | Type         | Notes                                                         |
-|---------------------|--------------|---------------------------------------------------------------|
-| `id`                | UUID / PK    | Unique participant ID                                         |
-| `competition_id`    | FK → competitions.id | Competition this participant is registered for         |
-| `first_name`        | text         | First name                                                    |
-| `last_name`         | text         | Last name                                                     |
-| `email`             | text         | Email address                                                 |
-| `team_id`           | FK → teams.id | Nullable if solo participant                                  |
-| `solo_entry`        | boolean      | True if entered directly into Boulder Beasts (solo entry)       |
-| `club_member`       | boolean      | Whether a current club member                                 |
-| `membership_number` | text / null  | For free entry if applicable                                  |
-| `paid`              | boolean      | Whether payment is complete (solo or updated by admin)        |
-| `created_at`        | timestamp    | Signup time                                                   |
+| Field           | Type             | Notes                                        |
+|-----------------|------------------|----------------------------------------------|
+| `id`            | UUID / PK        | Unique participant ID                         |
+| `competition_id`| FK → competitions.id | Competition this participant is registered for |
+| `user_id`       | FK → users.id    | User account for the participant             |
+| `first_name`    | text             | Participant's first name                     |
+| `last_name`     | text             | Participant's last name                      |
+| `email`         | text             | Participant's email                          |
+| `team_id`       | FK → teams.id / null | Team the participant belongs to (null for solo) |
+| `is_solo`    | boolean          | Whether this is a solo participant          |
+| `inserted_at`    | timestamp        | When added                                   |
 
 #### `ascents`
 
-| Field           | Type         | Notes                                                |
-|-----------------|--------------|------------------------------------------------------|
-| `id`            | UUID / PK    | Unique ascent ID                                     |
-| `competition_id`| FK → competitions.id | Competition associated with this ascent       |
-| `participant_id`| FK → participants.id | Who climbed it                                  |
-| `route_id`      | FK → routes.id | Route climbed                                       |
-| `timestamp`     | timestamp    | Logged time                                          |
-| `submitted`     | boolean      | Whether the log is finalized (final submission)      |
+| Field           | Type                | Notes                                     |
+|-----------------|---------------------|-------------------------------------------|
+| `id`            | UUID / PK           | Unique ascent ID                         |
+| `competition_id`| FK → competitions.id| Competition where the ascent was recorded|
+| `participant_id`| FK → participants.id| Participant who completed the ascent     |
+| `route_id`      | FK → routes.id      | Route that was climbed                   |
+| `team_id`       | FK → teams.id / null| Team of the participant (if applicable)  |
+| `inserted_at`    | timestamp           | When the ascent was recorded             |
 
----
+#### `users`
 
-### 📊 Scoring Configuration Tables
+| Field            | Type             | Notes                                     |
+|------------------|------------------|-------------------------------------------|
+| `id`             | UUID / PK        | Unique user ID                            |
+| `first_name`     | text             | User's first name                         |
+| `last_name`      | text             | User's last name                          |
+| `email`          | text             | User's email address                      |
+| `hashed_password`| text             | Encrypted password                        |
+| `confirmed_at`   | timestamp / null | When email was confirmed                  |
+| `role`           | enum             | "user", "admin", or "moderator"           |
+| `inserted_at`     | timestamp        | When added                                |
+| `updated_at`     | timestamp        | Last updated                              |
+
+#### `comp_vouchers`
+
+| Field           | Type                | Notes                                     |
+|-----------------|---------------------|-------------------------------------------|
+| `id`            | UUID / PK           | Unique voucher ID                         |
+| `email`         | text                | Email associated with the voucher         |
+| `code`          | int                 | Voucher code                              |
+| `code_used_at`  | timestamp / null    | When the voucher was used                 |
+| `competition_id`| FK → competitions.id| Competition this voucher is for           |
+| `participant_id`| FK → participants.id / null | Participant who used the voucher   |
+| `inserted_at`    | timestamp           | When added                                |
+| `updated_at`    | timestamp           | Last updated                              |
+
+### 📊 Scoring Tables
 
 #### `base_points`
 
-| Field          | Type         | Notes                              |
-|----------------|--------------|------------------------------------|
-| `grade`        | text         | e.g. '6A', '7B+'                   |
-| `points`       | integer      | Point value for this grade         |
-| `increment_factor` | float / null | Optional, for extrapolations       |
+| Field              | Type                | Notes                                     |
+|--------------------|---------------------|-------------------------------------------|
+| `id`               | UUID / PK           | Unique config ID                          |
+| `competition_id`   | FK → competitions.id / null | Competition (null for global config) |
+| `grade`            | text                | Climbing grade (e.g., "6A", "7B+")        |
+| `points`           | int                 | Base points for the grade                 |
+| `increment_factor` | float / null        | Optional increment factor                 |
 
 #### `volume_bonus`
 
-| Field                   | Type    | Notes                             |
-|-------------------------|---------|-----------------------------------|
-| `bonus_increment`       | integer | Ascents count increment (e.g. every 5)  |
-| `points_per_increment`  | integer | Points awarded per increment      |
+| Field               | Type                | Notes                                     |
+|---------------------|---------------------|-------------------------------------------|
+| `id`                | UUID / PK           | Unique config ID                          |
+| `competition_id`    | FK → competitions.id / null | Competition (null for global config) |
+| `bonus_increment`   | int                 | Number of ascents to trigger bonus        |
+| `points_per_increment` | int              | Points awarded per increment              |
 
 #### `unique_ascent_bonus`
 
-| Field          | Type   | Notes                                |
-|----------------|--------|--------------------------------------|
-| `bonus_factor` | float  | Multiplier for unique ascents (e.g. 1.0) |
+| Field           | Type                | Notes                                       |
+|-----------------|---------------------|---------------------------------------------|
+| `id`            | UUID / PK           | Unique config ID                            |
+| `competition_id`| FK → competitions.id / null | Competition (null for global config)|
+| `bonus_factor`  | float               | Multiplier for unique ascents               |
 
 #### `team_ascent_bonus`
 
-| Field          | Type    | Notes                                 |
-|----------------|---------|---------------------------------------|
-| `team_size`    | integer | E.g. 2, 3, or 4                        |
-| `bonus_factor` | float   | E.g. 0.10 for 10% bonus                  |
+| Field           | Type                | Notes                                       |
+|-----------------|---------------------|---------------------------------------------|
+| `id`            | UUID / PK           | Unique config ID                            |
+| `competition_id`| FK → competitions.id / null | Competition (null for global config)|
+| `team_size`     | int                 | Size of the team                            |
+| `bonus_factor`  | float               | Bonus multiplier (e.g., 0.18 for 18%)       |
 
 #### `master_grade_bonus`
 
-| Field          | Type  | Notes                                |
-|----------------|-------|--------------------------------------|
-| `bonus_factor` | float | 50% bonus for team with most ascents in a grade category |
-
----
-
-### 🧮 Scoring Result Tables
-
-#### `scored_ascents`
-
-| Field            | Type         | Notes                                         |
-|------------------|--------------|-----------------------------------------------|
-| `id`             | UUID / PK    | Unique key (or composite key with ascent_id)  |
-| `ascent_id`      | FK → ascents.id | Original ascent reference                  |
-| `participant_id` | FK → participants.id | Climber reference                      |
-| `route_id`       | FK → routes.id | Route reference                             |
-| `base_points`    | float        | Points from `base_points` table               |
-| `volume_bonus`   | float        | Bonus from `volume_bonus`                     |
-| `unique_bonus`   | float        | Bonus from `unique_ascent_bonus`              |
-| `total_points`   | float        | Sum of all points for this ascent             |
-| `timestamp`      | timestamp    | Inherited from the original ascent            |
+| Field           | Type                | Notes                                       |
+|-----------------|---------------------|---------------------------------------------|
+| `id`            | UUID / PK           | Unique config ID                            |
+| `competition_id`| FK → competitions.id / null | Competition (null for global config)|
+| `bonus_factor`  | float               | Bonus factor for team with most ascents     |
 
 #### `marathon_rankings`
 
-| Field                | Type      | Notes                                            |
-|----------------------|-----------|--------------------------------------------------|
-| `team_id`            | FK → teams.id | Team reference                               |
-| `base_score`         | float     | Sum of base points                               |
-| `volume_score`       | float     | Total volume bonus                               |
-| `unique_ascent_score`| float     | Sum of unique ascent bonuses                     |
-| `team_ascent_bonus`  | float     | Bonus for all team members climbing a route      |
-| `master_grade_bonus` | float     | Bonus for leading in a specific grade            |
-| `total_score`        | float     | Final aggregated score                           |
-| `rank`               | integer   | Final placement                                  |
+| Field               | Type                | Notes                                   |
+|---------------------|---------------------|----------------------------------------|
+| `id`                | UUID / PK           | Unique ranking ID                      |
+| `competition_id`    | FK → competitions.id| Competition for this ranking           |
+| `team_id`           | FK → teams.id       | Team being ranked                      |
+| `team_size`         | int                 | Number of members in team              |
+| `base_score`        | float               | Base score from ascents                |
+| `volume_bonus`      | float               | Bonus points for volume                |
+| `unique_ascent_bonus` | float            | Bonus for unique routes                 |
+| `team_ascent_bonus` | float               | Bonus based on team size               |
+| `master_grade_bonus`| float               | Bonus for mastering grades             |
+| `total_score`       | float               | Total unadjusted score                 |
+| `normalized_score`  | float               | Score normalized for team size         |
+| `rank`              | int                 | Final ranking position                 |
+| `inserted_at`        | timestamp           | When calculated                        |
+| `updated_at`        | timestamp           | Last updated                           |
+
+#### `marathon_detailed_results`
+
+| Field                | Type                | Notes                                  |
+|----------------------|---------------------|----------------------------------------|
+| `id`                 | UUID / PK           | Unique result ID                       |
+| `competition_id`     | FK → competitions.id| Competition for this result            |
+| `team_id`            | FK → teams.id       | Team being scored                      |
+| `team_name`          | text                | Name of the team                       |
+| `team_size`          | int                 | Number of members in team              |
+| `routes`             | JSONB               | Detailed routes information            |
+| `total_ascents`      | int                 | Total number of ascents by team        |
+| `volume_bonus`       | float               | Bonus points for volume                |
+| `team_completed_routes` | int             | Number of routes completed by team     |
+| `team_unique_routes` | int                 | Number of unique routes climbed        |
+| `master_grades`      | JSONB               | Master grades information              |
+| `master_grade_bonus` | float               | Bonus for mastering grades             |
+| `base_score`         | float               | Base score from ascents                |
+| `team_ascent_bonus`  | float               | Bonus based on team size               |
+| `unique_ascent_bonus`| float               | Bonus for unique routes                |
+| `total_score`        | float               | Total unadjusted score                 |
+| `normalized_score`   | float               | Score normalized for team size         |
+| `inserted_at`         | timestamp           | When calculated                        |
+| `updated_at`         | timestamp           | Last updated                           |
 
 #### `boulder_beasts_rankings`
 
-| Field              | Type         | Notes                                               |
-|--------------------|--------------|-----------------------------------------------------|
-| `participant_id`   | FK → participants.id | Participant reference                       |
-| `top_grades`       | text[] / JSON | List of top 5 grades (e.g. `["7A", "7B+", ...]`)    |
-| `total_score`      | float        | Final score based on individual ascents            |
-| `rank`             | integer      | Final placement                                    |
+| Field           | Type                   | Notes                                   |
+|-----------------|------------------------|----------------------------------------|
+| `id`            | UUID / PK              | Unique ranking ID                      |
+| `competition_id`| FK → competitions.id   | Competition for this ranking           |
+| `participant_id`| FK → participants.id   | Participant being ranked               |
+| `total_score`   | float                  | Total score                            |
+| `top_5_routes`  | text[] / null          | Array of top 5 route names             |
+| `top_5_routes_score` | float            | Score from top 5 routes                |
+| `rank`          | int                    | Final ranking position                 |
+| `inserted_at`    | timestamp              | When calculated                        |
+| `updated_at`    | timestamp              | Last updated                           |
 
-## Entity Relationship Diagram (ERD)
+#### `competition_photos`
 
-![Entity Relationship Diagram](./docs/images/boulder-comp-api-erd.png)
+| Field          | Type                 | Notes                                   |
+|----------------|----------------------|----------------------------------------|
+| `id`           | UUID / PK            | Unique photo ID                        |
+| `competition_id` | FK → competitions.id | Competition the photo belongs to      |
+| `uploader_id`  | FK → participants.id | Participant who uploaded the photo     |
+| `cloudinary_url` | text / null        | URL to the photo in Cloudinary         |
+| `description`  | text / null          | Optional photo description             |
+| `approved`     | boolean              | Whether the photo is approved          |
+| `featured`     | boolean              | Whether the photo is featured          |
+| `inserted_at`   | timestamp            | When uploaded                          |
+| `updated_at`   | timestamp            | Last updated                           |
 
-## API Endpoints
+### 🔄 Entity Relationship Diagram
 
-### Scraper API
+The following diagram illustrates the relationships between all database entities in the system, grouped by domain:
 
-- `POST /api/scraper/scrape` - Start a scraping task for 27crags data
-- `GET /api/scraper/task/{task_id}` - Check status of a scraping task
+![Database Entity Relationship Diagram](docs/database/erd.png)
 
-### Scoring API
+The diagram is organized into four main domains:
+- **Bouldering Data** (blue): Crags, sectors, boulders, routes, and related data
+- **Accounts** (orange): User management and authentication
+- **Competition Management** (yellow): Competitions, teams, participants, and ascents
+- **Scoring System** (green): Scoring configuration and competition results
 
-- `POST /api/scoring/calculate` - Calculate scores for a competition
-- `GET /api/scoring/task/{task_id}` - Check status of a calculation task
-- `GET /api/scoring/leaderboard/{competition_id}` - Get competition leaderboard
+Note the special relationship between Teams and Participants (marked in red), which represents the circular dependency handled by the named foreign key constraint for team captains.
 
-## Development
 
-- Follow PEP8 style guidelines
-- Write tests for new features
-- Add documentation for API endpoints
+## Database Implementation & Management
 
-## Testing
+The project includes a collection of command-line scripts for database management located in the 
+`database/management` directory. These scripts provide administrators with powerful tools to manage the 
+database outside of the API endpoints.
 
-For detailed information about testing, see [tests/testing.md](tests/testing.md) which includes:
-- Test structure and organization
-- Instructions for running tests
-- Mocking strategies
-- Recent updates to test suite
+### Core Database Scripts
 
-## Media Storage
-
-The API implements a secure media storage solution with the following features:
-- Cloudinary-based image hosting for both boulder and competition photos
-- Hierarchical organization by crag/sector and competition
-- Advanced image optimization and content delivery
-- Access control for user-submitted competition photos 
-
-For complete details, see [docs/media_storage.md](docs/media_storage.md).
-
-## Deployment
-
-This API is designed to be deployed using Docker:
-
-### Heroku
-
-1. Install the Heroku CLI and login:
-
+1. **Database Initialization** (`init_db_all.py`):
+   - Creates all database tables based on the SQLModel definitions
+   - Optionally initializes mock competition data
    ```bash
-   brew install heroku
-   heroku login
+   python -m database.management.init_db_all [--mock-comp]
    ```
 
-2. Create a new Heroku app:
-
+2. **Database Reset** (`reset_db.py`):
+   - Completely resets the database (drops and recreates all tables)
+   - Provides options for reimporting boulder data and creating mock competitions
    ```bash
-   heroku create your-app-name
+   python -m database.management.reset_db [--force] [--mock-comp] [--skip-boulder-import]
    ```
 
-3. Add Redis add-on:
-
+3. **Crag Data Management**:
+   - `init_crag_core.py`: Imports boulder and route data from scraped JSON files
+   - `init_crag_config.py`: Sets up configuration for crag-specific settings
+   - `init_boulder_photos.py`: Re-uploads boulder photos to Cloudinary
    ```bash
-   heroku addons:create heroku-redis:hobby-dev -a your-app-name
+   python -m database.management.init_crag_core [--file PATH] [--crag NAME]
+   python -m database.management.init_boulder_photos [--crag NAME] [--skip-reset]
    ```
 
-4. Set environment variables:
+4. **Mock Competition Setup** (`init_mock_comp.py`):
+   - Creates sample competition data for testing and development
+   - Includes mock users, teams, participants, and ascents
+   - Configures scoring parameters for realistic competition testing
 
+### Database Management Workflow
+
+These CLI tools complement the API endpoints by providing direct database management capabilities:
+
+1. **Development Setup**:
    ```bash
-   heroku config:set SUPABASE_URL=your_url
-   heroku config:set SUPABASE_ANON-KEY=your_key
-   heroku config:set SUPABASE_SERVICE-ROLE-KEY=your_key
-   # Add other environment variables
+   # Initialize database with test data
+   python -m database.management.init_db_all --mock-comp
    ```
 
-5. Enable the container stack:
-
+2. **Data Reset/Refresh**:
    ```bash
-   heroku stack:set container -a your-app-name
+   # Force reset database and recreate with fresh mock data
+   python -m database.management.reset_db --force --mock-comp
    ```
 
-6. Login to Heroku Container Registry:
-
+3. **Updating Boulder Data**:
    ```bash
-   heroku container:login
-   ```
-
-7. Deploy the app:
-
-   ```bash
-   git push heroku main
-   ```
-
-8. Scale dynos:
-
-   ```bash
-   heroku ps:scale web=1 worker=1
-   ```
-
-9. View logs:
-
-   ```bash
-   heroku logs --tail
-   ```
-
-#### Custom Domain and SSL
-
-1. Add your custom domain to Heroku:
-
-   ```bash
-   heroku domains:add www.yourdomain.com -a your-app-name
-   ```
-
-2. Verify domain ownership and configure DNS:
-   - Add the provided DNS target as a CNAME record for your domain
-   - For apex domains, use DNS provider's ALIAS/ANAME record or Heroku's DNS service
-
-3. Enable Automatic Certificate Management (ACM) for SSL:
-
-   ```bash
-   heroku certs:auto:enable -a your-app-name
-   ```
-
-4. Check certificate status:
-
-   ```bash
-   heroku certs:auto -a your-app-name
-   ```
-
-#### Troubleshooting
-
-- Restart dynos:
-
-  ```bash
-  heroku dyno:restart -a your-app-name
-  ```
-
-- Check running dynos:
-
-  ```bash
-  heroku ps -a your-app-name
-  ```
-
-- View detailed logs:
-
-  ```bash
-  heroku logs --tail --source app -a your-app-name
-  ```
-
-#### Monitoring and Logging
-
-1. Set up application monitoring with Heroku add-ons:
-
-   ```bash
-   # New Relic for application performance monitoring
-   heroku addons:create newrelic:wayne -a your-app-name
+   # Import latest boulder data after scraping
+   python -m database.management.init_crag_core
    
-   # Papertrail for log management
-   heroku addons:create papertrail:choklad -a your-app-name
+   # Re-upload boulder photos to Cloudinary
+   python -m database.management.init_boulder_photos
    ```
 
-2. Configure custom metrics with Heroku metrics:
+These tools are particularly useful for:
+- Initial setup and deployment of the application
+- Development and testing with controlled data
+- Recovering from database inconsistencies
+- Batch operations that would be cumbersome through the API
 
-   ```bash
-   # Enable Heroku metrics
-   heroku labs:enable runtime-metrics -a your-app-name
-   
-   # View metrics
-   heroku metrics -a your-app-name
-   ```
+## 🕸️ Data Collection and Scraping
 
-3. Set up alerts for important events:
+The Boulder Competition API includes a sophisticated web scraping system to collect climbing data from 27crags.com. This data collection pipeline forms the foundation of the competition platform by providing detailed information about crags, boulders, routes, and photos.
 
-   ```bash
-   # Using Librato for metric alerts
-   heroku addons:create librato:development -a your-app-name
-   ```
-
-4. Access application metrics dashboards:
-
-   ```bash
-   # Open metrics dashboard
-   heroku addons:open librato -a your-app-name
-   
-   # Open logs dashboard
-   heroku addons:open papertrail -a your-app-name
-   ```
-
-### Docker and Container Best Practices
-
-- **Environment Variables**: Always use environment variables for configuration (credentials, URLs, etc.) instead of hardcoding values
-- **Container Images**: Use specific version tags for base images (e.g., `python:3.12-slim` instead of `python:latest`)
-- **Image Cleanup**: Periodically clean up unused images to save disk space:
-
-  ```bash
-  docker image prune -a
-  ```
-
-- **Health Checks**: Consider adding health checks to your containers to ensure they're running correctly
-- **Volumes for Persistent Data**: Use Docker volumes for any data that needs to persist between container restarts
-- **Network Security**: Configure container networks to only expose necessary ports
-- **Resource Limits**: Set memory and CPU limits for containers in production environments
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
+For detailed documentation of the scraping architecture and implementation, refer to [Scraper Documentation](scraper/README.md).

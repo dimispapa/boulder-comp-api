@@ -6,11 +6,25 @@ import cloudinary
 import cloudinary.uploader
 import cloudinary.api
 from typing import Dict, Any, List
-from supabase import Client
+from sqlmodel import Session
 from utils.loggers import logger
 import traceback
 import os
 from dotenv import load_dotenv
+from datetime import datetime, UTC
+
+# Import database CRUD functions
+from database.crud.crags import (get_crag_by_name, get_sectors_by_crag_id,
+                                 get_boulders_by_sector_id, get_photo_by_id,
+                                 get_photos_by_boulder_id)
+
+# Import competition CRUD functions
+from database.crud.competitions import (
+    get_competition_by_id, get_competition_photos_without_cloudinary_url,
+    get_participants_by_ids)
+
+# Import media CRUD functions
+from database.crud.media import update_photo
 
 # Load environment variables
 load_dotenv()
@@ -22,15 +36,15 @@ CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET")
 class CloudinaryUploader:
     """Handles uploading photos to Cloudinary"""
 
-    def __init__(self, supabase: Client, folder_base: str = "boulder-comp"):
+    def __init__(self, db_session: Session, folder_base: str = "boulder-comp"):
         """
-        Initialize the uploader with Cloudinary and Supabase clients.
+        Initialize the uploader with Cloudinary and database session.
 
         Args:
-            supabase (Client): Initialized Supabase client
+            db_session (Session): SQLModel database session
             folder_base (str): Base folder name in Cloudinary
         """
-        self.supabase = supabase
+        self.session = db_session
         self.folder_base = folder_base
         # Cache to store verified folder paths to reduce API calls
         self.folder_cache = set()
@@ -80,14 +94,10 @@ class CloudinaryUploader:
         if crag_name:
             try:
                 # Get crag information
-                crag_response = self.supabase.table('crags').select(
-                    'id, name, display_name').eq('name', crag_name).execute()
-
-                if not crag_response.data:
+                crag = get_crag_by_name(self.session, crag_name)
+                if not crag:
                     logger.error(f"Crag {crag_name} not found in database")
                     return False
-
-                crag_id = crag_response.data[0]['id']
 
                 # Create the crag folder
                 crag_folder = f"{boulder_photos_folder}/{crag_name}"
@@ -97,16 +107,14 @@ class CloudinaryUploader:
                     return False
 
                 # Get sectors in this crag
-                sector_response = self.supabase.table('sectors').select(
-                    'id, name').eq('crag_id', crag_id).execute()
-
-                if not sector_response.data:
+                sectors = get_sectors_by_crag_id(self.session, crag.id)
+                if not sectors:
                     logger.info(f"No sectors found for crag {crag_name}")
                     return True
 
                 # Create a folder for each sector
-                for sector in sector_response.data:
-                    sector_name = sector['name']
+                for sector in sectors:
+                    sector_name = sector.name
                     # Use the full nested path as originally designed
                     folder = \
                         f"{boulder_photos_folder}/{crag_name}/{sector_name}"
@@ -146,10 +154,8 @@ class CloudinaryUploader:
 
         try:
             # Get crag information
-            crag_response = self.supabase.table('crags').select(
-                'id, name, display_name').eq('name', crag_name).execute()
-
-            if not crag_response.data:
+            crag = get_crag_by_name(self.session, crag_name)
+            if not crag:
                 error_msg = f"Crag {crag_name} not found in database"
                 logger.error(error_msg)
                 return {
@@ -162,17 +168,12 @@ class CloudinaryUploader:
                     "failures": []
                 }
 
-            crag_id = crag_response.data[0]['id']
-            crag_display_name = crag_response.data[0]['display_name']
-
-            logger.info(f"Found crag: {crag_display_name} (ID: {crag_id})")
+            logger.info(f"Found crag: {crag.display_name} (ID: {crag.id})")
 
             # Get sectors in this crag
-            sector_response = self.supabase.table('sectors').select(
-                'id, name, display_name').eq('crag_id', crag_id).execute()
-
-            if not sector_response.data:
-                error_msg = f"No sectors found for crag {crag_display_name}"
+            sectors = get_sectors_by_crag_id(self.session, crag.id)
+            if not sectors:
+                error_msg = f"No sectors found for crag {crag.display_name}"
                 logger.error(error_msg)
                 return {
                     "status": "error",
@@ -184,36 +185,31 @@ class CloudinaryUploader:
                     "failures": []
                 }
 
-            logger.info(f"Found {len(sector_response.data)} sectors in crag "
-                        f"{crag_display_name}")
+            logger.info(
+                f"Found {len(sectors)} sectors in crag {crag.display_name}")
 
-            for sector in sector_response.data:
-                sector_id = sector['id']
-                sector_name = sector['name']
-                sector_display_name = sector['display_name']
+            for sector in sectors:
+                sector_id = sector.id
+                sector_name = sector.name
+                sector_display_name = sector.display_name
 
                 logger.info(f"Processing sector: {sector_display_name} "
                             f"(ID: {sector_id})")
 
                 # Get boulders in this sector
-                boulder_response = (self.supabase.table('boulders').select(
-                    'id, name, display_name').eq('sector_id',
-                                                 sector_id).execute())
+                boulders = get_boulders_by_sector_id(self.session, sector_id)
 
-                if not boulder_response.data:
-                    logger.info(f"No boulders found in sector: "
-                                f"{sector_display_name}")
+                if not boulders:
+                    logger.info(
+                        f"No boulders found in sector: {sector_display_name}")
                     continue
 
                 # Get all boulder IDs in this sector
-                boulder_ids = [b['id'] for b in boulder_response.data]
-                boulder_names = {
-                    b['id']: b['name']
-                    for b in boulder_response.data
-                }
+                boulder_ids = [b.id for b in boulders]
+                boulder_names = {b.id: b.name for b in boulders}
                 boulder_display_names = {
-                    b['id']: b['display_name']
-                    for b in boulder_response.data
+                    b.id: b.display_name
+                    for b in boulders
                 }
 
                 logger.info(f"Found {len(boulder_ids)} boulders in sector "
@@ -224,27 +220,47 @@ class CloudinaryUploader:
 
                 for boulder_id in boulder_ids:
                     # Look for photos that need uploading to Cloudinary
-                    photo_response = self.supabase.table('boulder_photos') \
-                        .select('id, url, photo_id') \
-                        .eq('boulder_id', boulder_id) \
-                        .is_('cloudinary_url', 'null') \
-                        .execute()
+                    # Get photos for this boulder
+                    boulder_photos = get_photos_by_boulder_id(
+                        self.session, boulder_id)
 
-                    if photo_response.data:
+                    # Filter for photos without cloudinary_url
+                    photos_to_upload = [
+                        p for p in boulder_photos if p.storage_url is None
+                    ]
+
+                    if photos_to_upload:
                         # Add boulder name and id to each photo
-                        for photo in photo_response.data:
-                            photo['boulder_name'] = boulder_names[boulder_id]
-                            photo['boulder_display_name'] = \
-                                boulder_display_names[boulder_id]
-                            photo['boulder_id'] = boulder_id
-                            photo['sector_name'] = sector_name
-                            photo['sector_display_name'] = sector_display_name
-                            photo['crag_name'] = crag_name
-                            photo['crag_display_name'] = crag_display_name
-                            # Mark as boulder photo
-                            photo['photo_type'] = 'boulder'
-
-                        sector_photos_to_upload.extend(photo_response.data)
+                        for photo in photos_to_upload:
+                            # Create a dict representation
+                            # for consistent handling
+                            photo_dict = {
+                                "id":
+                                str(photo.id),
+                                "source_url":
+                                photo.source_url,
+                                "photo_id":
+                                photo.photo_id,
+                                "order":
+                                photo.order,
+                                "boulder_name":
+                                boulder_names[boulder_id],
+                                "boulder_display_name":
+                                boulder_display_names[boulder_id],
+                                "boulder_id":
+                                str(boulder_id),
+                                "sector_name":
+                                sector_name,
+                                "sector_display_name":
+                                sector_display_name,
+                                "crag_name":
+                                crag_name,
+                                "crag_display_name":
+                                crag.display_name,
+                                "photo_type":
+                                'boulder'
+                            }
+                            sector_photos_to_upload.append(photo_dict)
 
                 if not sector_photos_to_upload:
                     logger.info(f"No photos found to upload for sector: "
@@ -267,7 +283,7 @@ class CloudinaryUploader:
                             "photo_id":
                             photo["id"],
                             "photo_url":
-                            photo["url"],
+                            photo["source_url"],
                             "boulder_id":
                             photo["boulder_id"],
                             "boulder_name":
@@ -278,7 +294,7 @@ class CloudinaryUploader:
 
             # Completed processing all sectors
             logger.info(
-                f"Completed photo upload for crag {crag_display_name}. "
+                f"Completed photo upload for crag {crag.display_name}. "
                 f"Stats: {successful_uploads}/{total_photos_to_upload} "
                 f"successful uploads.")
 
@@ -325,11 +341,10 @@ class CloudinaryUploader:
         total_photos_to_upload = 0
 
         try:
-            # Get competition information
-            competition_response = self.supabase.table('competitions').select(
-                'id, name, display_name').eq('id', competition_id).execute()
+            # Get competition information using SQLModel
+            competition = get_competition_by_id(self.session, competition_id)
 
-            if not competition_response.data:
+            if not competition:
                 error_msg = (f"Competition with ID {competition_id} not "
                              f"found in database")
                 logger.error(error_msg)
@@ -343,21 +358,17 @@ class CloudinaryUploader:
                     "failures": []
                 }
 
-            competition_name = competition_response.data[0]['name']
-            competition_display_name = competition_response.data[0][
-                'display_name']
+            competition_name = competition.name
+            competition_display_name = competition.display_name
 
             logger.info(f"Found competition: {competition_display_name}")
 
             # Get user-submitted photos for this competition
             # that need uploading
-            photo_response = self.supabase.table('competition_photos') \
-                .select('id, url, uploader_id, description') \
-                .eq('competition_id', competition_id) \
-                .is_('cloudinary_url', 'null') \
-                .execute()
+            photos_to_upload = get_competition_photos_without_cloudinary_url(
+                self.session, competition_id)
 
-            if not photo_response.data:
+            if not photos_to_upload:
                 logger.info(f"No photos found for competition: "
                             f"{competition_display_name}")
                 return {
@@ -369,44 +380,62 @@ class CloudinaryUploader:
                     "failures": []
                 }
 
-            total_photos_to_upload = len(photo_response.data)
+            total_photos_to_upload = len(photos_to_upload)
             logger.info(f"Found {total_photos_to_upload} photos to upload for "
                         f"competition: {competition_display_name}")
 
             # Get uploader information for all photos
             uploader_ids = list(
-                set(photo['uploader_id'] for photo in photo_response.data))
-            uploader_response = self.supabase.table('participants') \
-                .select('id, user_id, display_name') \
-                .in_('id', uploader_ids) \
-                .execute()
+                set(photo.uploader_id for photo in photos_to_upload))
+            uploaders = get_participants_by_ids(self.session, uploader_ids)
 
-            uploader_info = {
-                u['id']: u['display_name']
-                for u in uploader_response.data
-            }
+            uploader_info = {str(u.id): u.display_name for u in uploaders}
 
             # Process photos
-            for photo in photo_response.data:
-                # Add competition info to photo
-                photo['competition_name'] = competition_name
-                photo['competition_display_name'] = competition_display_name
-                photo['competition_id'] = competition_id
-                # Add uploader info if available
-                photo['uploader_name'] = uploader_info.get(
-                    photo['uploader_id'], 'unknown')
-                # Mark as competition photo
-                photo['photo_type'] = 'competition'
+            for photo in photos_to_upload:
+                # Create photo data dictionary for upload
+                photo_data = {
+                    "id":
+                    str(photo.id),
+                    "source_url":
+                    photo.source_url,
+                    "uploader_id":
+                    str(photo.uploader_id),
+                    "competition_name":
+                    competition_name,
+                    "competition_display_name":
+                    competition_display_name,
+                    "competition_id":
+                    competition_id,
+                    # Add uploader info if available
+                    "uploader_name":
+                    uploader_info.get(str(photo.uploader_id), 'unknown'),
+                    # Mark as competition photo
+                    "photo_type":
+                    'competition'
+                }
+                if hasattr(photo, "description") and photo.description:
+                    photo_data["description"] = photo.description
 
-                result = self._upload_competition_photo(photo)
+                result = self._upload_competition_photo(photo_data)
                 if result["success"]:
                     successful_uploads += 1
+
+                    # Update the photo record with cloudinary info
+                    photo.storage_url = result["cloudinary_url"]
+                    photo.updated_at = datetime.now(UTC)
+                    self.session.add(photo)
+                    self.session.commit()
                 else:
                     failed_uploads.append({
-                        "photo_id": photo["id"],
-                        "photo_url": photo["url"],
-                        "uploader_id": photo["uploader_id"],
-                        "error": result["error"]
+                        "photo_id":
+                        photo_data["id"],
+                        "photo_url":
+                        photo_data["source_url"],
+                        "uploader_id":
+                        photo_data["uploader_id"],
+                        "error":
+                        result["error"]
                     })
 
             # Completed processing
@@ -534,11 +563,12 @@ class CloudinaryUploader:
             dict: Result of the upload operation
         """
         photo_id = photo_data["id"]
-        source_url = photo_data["url"]
+        source_url = photo_data["source_url"]
         boulder_display_name = photo_data["boulder_display_name"]
         boulder_name = photo_data["boulder_name"]
         crag_name = photo_data["crag_name"]
         sector_name = photo_data["sector_name"]
+        order = photo_data["order"]
 
         logger.info(
             f"Uploading photo {photo_id} for boulder {boulder_display_name}")
@@ -583,34 +613,31 @@ class CloudinaryUploader:
             safe_sector_name = "".join(c if c.isalnum() or c == "_" else "_"
                                        for c in sector_name)
 
-            # Create unique filename with crag, sector, and boulder info
+            # Create deterministic filename using photo_id instead of UUID
+            # This ensures the same photo always gets the same filename
             file_name = (f"{safe_crag_name}_{safe_sector_name}_"
-                         f"{safe_boulder_name}_{photo_data['photo_id']}_"
-                         f"{uuid.uuid4().hex[:8]}")
+                         f"{safe_boulder_name}_{order}")
 
             # Upload directly from the URL to Cloudinary
-            # using the folder parameter
             upload_result = cloudinary.uploader.upload(
                 source_url,
                 folder=folder_path,
                 public_id=file_name,
                 resource_type="image",
-                overwrite=True,
+                overwrite=True,  # Will replace existing images with same name
                 responsive=True,  # Generate responsive variants
                 tags=["boulder", crag_name, sector_name, boulder_name])
 
             # Get the secure URL from the response
             cloudinary_url = upload_result["secure_url"]
 
-            # Update the database with the new Cloudinary URL
-            self.supabase.table("boulder_photos").update({
-                "cloudinary_url":
-                cloudinary_url,
-                "cloudinary_public_id":
-                upload_result["public_id"],
-                "cloudinary_resource_type":
-                "image"
-            }).eq("id", photo_id).execute()
+            # Get photo from database and update with Cloudinary info
+            photo = get_photo_by_id(self.session, photo_id)
+            if photo:
+                photo.storage_url = cloudinary_url
+                photo.updated_at = datetime.now(UTC)
+                self.session.add(photo)
+                self.session.commit()
 
             logger.info(
                 f"Successfully uploaded photo {photo_id} to Cloudinary: "
@@ -618,7 +645,8 @@ class CloudinaryUploader:
             return {
                 "success": True,
                 "photo_id": photo_id,
-                "cloudinary_url": cloudinary_url
+                "cloudinary_url": cloudinary_url,
+                "cloudinary_public_id": upload_result["public_id"]
             }
         except Exception as e:
             error_msg = (f"Error uploading photo {photo_id} to Cloudinary: "
@@ -639,7 +667,7 @@ class CloudinaryUploader:
             dict: Result of the upload operation
         """
         photo_id = photo_data["id"]
-        source_url = photo_data["url"]
+        source_url = photo_data["source_url"]
         competition_name = photo_data["competition_name"]
         uploader_name = photo_data["uploader_name"]
 
@@ -693,18 +721,15 @@ class CloudinaryUploader:
 
             # Get the secure URL from the response
             cloudinary_url = upload_result["secure_url"]
+            moderation_status = upload_result.get("moderation",
+                                                  {}).get("status", "pending")
 
-            # Update the database with the new Cloudinary URL
-            self.supabase.table("competition_photos").update({
-                "cloudinary_url":
-                cloudinary_url,
-                "cloudinary_public_id":
-                upload_result["public_id"],
-                "cloudinary_resource_type":
-                "image",
-                "moderation_status":
-                upload_result.get("moderation", {}).get("status", "pending")
-            }).eq("id", photo_id).execute()
+            # Update photo record with cloudinary info if it exists
+            photo = get_photo_by_id(self.session, photo_id)
+            if photo:
+                photo.cloudinary_url = cloudinary_url
+                photo.updated_at = datetime.now(UTC)
+                update_photo(self.session, photo)
 
             logger.info(
                 f"Successfully uploaded competition photo {photo_id} to "
@@ -712,7 +737,9 @@ class CloudinaryUploader:
             return {
                 "success": True,
                 "photo_id": photo_id,
-                "cloudinary_url": cloudinary_url
+                "cloudinary_url": cloudinary_url,
+                "cloudinary_public_id": upload_result["public_id"],
+                "moderation_status": moderation_status
             }
         except Exception as e:
             error_msg = (f"Error uploading competition photo {photo_id} to "

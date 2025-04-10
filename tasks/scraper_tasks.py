@@ -13,7 +13,8 @@ from pathlib import Path
 from datetime import datetime
 
 from scraper.models import Crag, Boulder, Route, BoulderPhoto, RouteLineData
-from utils.supabase import get_admin_supabase_client, store_crag_data
+from database.management.base import get_db_session
+from scraper.data_storage import store_crag_data
 from utils.loggers import logger
 
 # Load environment variables
@@ -30,9 +31,6 @@ USER_AGENTS = [
 
 # Remove any None values in case some weren't defined
 USER_AGENTS = [ua for ua in USER_AGENTS if ua]
-
-# Initialize Supabase client with admin privileges
-supabase = get_admin_supabase_client()
 
 # Create directory for storing scraped data
 SCRAPED_DATA_DIR = Path("data/scraped")
@@ -60,24 +58,25 @@ def scrape_crag_task(self, crag_name: str):
         headers = {'User-Agent': selected_user_agent}
 
         # Initialize scraper with the selected user agent
-        scraper = CragScraper(headers, supabase, crag_name)
+        with get_db_session() as session:
+            scraper = CragScraper(headers, session, crag_name)
 
-        # Define a progress callback that also updates our local copy
-        def update_progress(info):
-            nonlocal progress_info
-            progress_info = info  # Store the latest info locally
-            self.update_state(state='PROGRESS', meta=info)
+            # Define a progress callback that also updates our local copy
+            def update_progress(info):
+                nonlocal progress_info
+                progress_info = info  # Store the latest info locally
+                self.update_state(state='PROGRESS', meta=info)
 
-        # Create event loop for async scraping
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+            # Create event loop for async scraping
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
 
-        # Run the async scraping with progress updates
-        crag_data = loop.run_until_complete(
-            scraper.scrape_crag(progress_callback=update_progress))
+            # Run the async scraping with progress updates
+            crag_data = loop.run_until_complete(
+                scraper.scrape_crag(progress_callback=update_progress))
 
-        # Clean up the loop
-        loop.close()
+            # Clean up the loop
+            loop.close()
 
         # Save data to a JSON file if it's a valid Crag object
         file_path = None
@@ -195,7 +194,8 @@ def save_crag_to_json(crag: Crag, file_path: Path) -> dict:
                 boulder.gps_string,
                 "photos": [{
                     "id": photo.id,
-                    "url": photo.url,
+                    "source_url": photo.source_url,
+                    "order": photo.order,
                     "lines_data": photo.lines_data
                 } for photo in boulder.photos],
                 "routes": [{
@@ -211,55 +211,39 @@ def save_crag_to_json(crag: Crag, file_path: Path) -> dict:
                     route.rating,
                     "description":
                     route.description,
-                    "line_data": [{
-                        "photo_id": line.photo_id,
-                        "line_points": line.line_points
-                    } for line in route.line_data]
+                    "line_data": [line.to_dict() for line in route.line_data]
                 } for route in boulder.routes]
             } for boulder in crag.boulders]
         }
 
-        # Log sample of the data structure
-        if crag.boulders:
-            sample_boulder = crag.boulders[0]
-            if sample_boulder.photos:
-                logger.debug("Sample photo data structure:")
-                logger.debug(
-                    json.dumps(crag_dict["boulders"][0]["photos"][0],
-                               indent=2))
-
-        # Log file details before writing
-        logger.info(
-            f"Preparing to write {len(crag.boulders)} boulders to {file_path}")
-
-        # Write to file
+        # Save to JSON file
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(crag_dict, f, ensure_ascii=False, indent=2)
 
-        # Verify file was created
-        if file_path.exists():
-            file_size = file_path.stat().st_size
-            logger.info(
-                f"File successfully written: {file_path} ({file_size} bytes)")
-        else:
-            logger.error(f"File was not created: {file_path}")
+        # Get file info for verification
+        file_info = os.stat(file_path)
+        file_size_kb = round(file_info.st_size / 1024, 2)
+
+        logger.info(
+            f"Successfully saved crag data to {file_path} ({file_size_kb} KB)")
 
         return {"status": "success", "file_path": str(file_path)}
 
     except Exception as e:
-        logger.error(f"Error saving crag data to JSON: {str(e)}")
-        logger.error(traceback.format_exc())
+        error_traceback = traceback.format_exc()
+        logger.error(f"Error saving crag to JSON: {str(e)}")
+        logger.error(error_traceback)
         return {
             "status": "error",
-            "detail": str(e),
-            "traceback": traceback.format_exc()
+            "detail": f"Failed to save crag data: {str(e)}",
+            "traceback": error_traceback
         }
 
 
 @celery_app.task(bind=True, name='tasks.scraper_tasks.store_crag_data_task')
 def store_crag_data_task(self, file_path: str):
     """
-    Celery task to store previously scraped crag data to Supabase.
+    Celery task to store scraped crag data from a JSON file to the database.
 
     Args:
         file_path (str): Path to the JSON file containing crag data
@@ -268,159 +252,85 @@ def store_crag_data_task(self, file_path: str):
         dict: Status and result of the storage operation
     """
     try:
-        logger.info(f"Starting database storage task for file: {file_path}")
+        logger.info(f"Starting storage task for file: {file_path}")
 
-        # Load crag data from JSON file
-        logger.info(f"Loading crag data from JSON file: {file_path}")
-        crag_data = load_crag_from_json(file_path)
-
-        # Calculate initial statistics for reporting progress
-        total_boulders = len(crag_data.boulders)
-        total_routes = sum(
-            len(boulder.routes) for boulder in crag_data.boulders)
-
-        logger.info(f"Loaded crag '{crag_data.name}' from file with "
-                    f"{total_boulders} boulders and {total_routes} routes")
-
-        # Update task state with initial statistics
-        self.update_state(
-            state='PROGRESS',
-            meta={
-                'status': 'storing_data',
-                'message': 'Loading data from file and storing to database...',
-                'crag_name': crag_data.name,
-                'total_boulders': total_boulders,
-                'total_routes': total_routes,
-            })
-
-        # Store the data using the existing utility function
-        logger.info(f"Starting database storage for crag: {crag_data.name}")
-        storage_result = store_crag_data(crag_data, supabase)
-
-        # Update task state with storage completed
-        success = storage_result.get("status") == "success"
-
-        if success:
-            logger.info("Database storage successfully completed for crag: "
-                        f"{crag_data.name}")
-
-            self.update_state(state='SUCCESS',
-                              meta={
-                                  'status': 'completed',
-                                  'message':
-                                  'Database storage completed successfully',
-                                  'file_path': file_path,
-                                  'storage_result': storage_result
-                              })
-        else:
-            logger.error(f"Database storage failed for crag: {crag_data.name}")
-            logger.error(f"Error details: "
-                         f"{storage_result.get('detail', 'Unknown error')}")
-
-            self.update_state(state='FAILURE',
-                              meta={
-                                  'status':
-                                  'error',
-                                  'message':
-                                  'Database storage failed',
-                                  'file_path':
-                                  file_path,
-                                  'error':
-                                  storage_result.get('detail',
-                                                     'Unknown error'),
-                                  'storage_result':
-                                  storage_result
-                              })
-
-        return {
-            "status": "success" if success else "error",
-            "file_path": file_path,
-            "crag_name": crag_data.name,
-            "storage_result": storage_result,
-            "total_boulders": total_boulders,
-            "total_routes": total_routes,
-            "stored_boulders": storage_result.get("stored_boulders", 0),
-            "stored_routes": storage_result.get("stored_routes", 0),
-            "stored_photos": storage_result.get("stored_photos", 0),
-            "stored_line_data": storage_result.get("stored_line_data", 0),
-            "skipped_boulders": storage_result.get("skipped_boulders", []),
-        }
-
-    except Exception as e:
-        logger.error(f"Error in store_crag_data_task: {str(e)}")
-        logger.error(traceback.format_exc())
-        return {
-            "status": "error",
-            "detail": str(e),
-            "traceback": traceback.format_exc(),
-            "file_path": file_path
-        }
-
-
-def load_crag_from_json(file_path: str) -> Crag:
-    """
-    Load a Crag object from a JSON file.
-
-    Args:
-        file_path (str): Path to the JSON file
-
-    Returns:
-        Crag: The reconstructed Crag object
-    """
-    try:
-        # Read JSON file
+        # Load the crag data from JSON file
         with open(file_path, 'r', encoding='utf-8') as f:
             crag_dict = json.load(f)
 
-        # Recreate Boulder and Route objects
-        boulders = []
-        for boulder_dict in crag_dict["boulders"]:
-            # Create BoulderPhoto objects
-            photos = []
-            if "photos" in boulder_dict:
-                photos = [
-                    BoulderPhoto(id=photo_dict["id"],
-                                 url=photo_dict["url"],
-                                 lines_data=photo_dict["lines_data"])
-                    for photo_dict in boulder_dict["photos"]
-                ]
+        # Convert the dictionary back to a Crag object
+        crag = Crag(name=crag_dict["name"],
+                    display_name=crag_dict["display_name"],
+                    boulders=[])
 
-            # Create Route objects with line data
+        # Reconstruct each Boulder with its routes and photos
+        for boulder_dict in crag_dict["boulders"]:
+            # Create route objects
             routes = []
             for route_dict in boulder_dict["routes"]:
+                # Reconstruct line_data objects if present
                 line_data = []
-                if "line_data" in route_dict:
-                    line_data = [
-                        RouteLineData(photo_id=line_dict["photo_id"],
-                                      line_points=line_dict["line_points"])
-                        for line_dict in route_dict["line_data"]
-                    ]
+                if "line_data" in route_dict and route_dict["line_data"]:
+                    for line_dict in route_dict["line_data"]:
+                        line_data.append(
+                            RouteLineData(
+                                photo_id=line_dict["photo_id"],
+                                line_points=line_dict["line_points"]))
 
+                # Create the Route object
                 route = Route(name=route_dict["name"],
+                              display_name=route_dict.get(
+                                  "display_name", route_dict["name"]),
                               url=route_dict["url"],
                               grade=route_dict["grade"],
                               rating=route_dict["rating"],
                               description=route_dict["description"],
-                              line_data=line_data,
-                              display_name=route_dict.get("display_name"))
+                              line_data=line_data)
                 routes.append(route)
 
-            # Create Boulder object with routes and photos
+            # Create photo objects
+            photos = []
+            for photo_dict in boulder_dict["photos"]:
+                photo = BoulderPhoto(
+                    id=photo_dict["id"],
+                    source_url=photo_dict.get("source_url",
+                                              photo_dict.get("source_url",
+                                                             "")),
+                    order=photo_dict.get("order", 0),
+                    lines_data=photo_dict.get("lines_data", {}))
+                photos.append(photo)
+
+            # Create the Boulder object
             boulder = Boulder(name=boulder_dict["name"],
+                              display_name=boulder_dict.get(
+                                  "display_name", boulder_dict["name"]),
                               url=boulder_dict["url"],
                               gps_postgis=boulder_dict["gps_postgis"],
                               gps_string=boulder_dict["gps_string"],
                               routes=routes,
-                              photos=photos,
-                              display_name=boulder_dict.get("display_name"))
-            boulders.append(boulder)
+                              photos=photos)
+            crag.boulders.append(boulder)
 
-        # Create and return Crag object
-        display_name = crag_dict.get("display_name", crag_dict["name"])
-        return Crag(name=crag_dict["name"],
-                    display_name=display_name,
-                    boulders=boulders)
+        # Store the data in the database using SQLModel session
+        with get_db_session() as session:
+            result = store_crag_data(crag, session)
+
+        logger.info(f"Completed storage task for file: {file_path}")
+        logger.info(f"Storage result: {result}")
+
+        return {
+            "status": "success" if result["status"] == "success" else "error",
+            "file_path": file_path,
+            "storage_result": result
+        }
 
     except Exception as e:
-        logger.error(f"Error loading crag data from JSON: {str(e)}")
-        raise
+        error_traceback = traceback.format_exc()
+        logger.error(f"Error in storage task: {str(e)}")
+        logger.error(error_traceback)
+        return {
+            "status": "error",
+            "detail": f"Failed to store crag data: {str(e)}",
+            "traceback": error_traceback,
+            "file_path": file_path
+        }

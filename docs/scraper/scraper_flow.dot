@@ -1,0 +1,195 @@
+digraph ScraperFlow {
+  // Graph settings
+  rankdir=TB;
+  splines=ortho;
+  nodesep=0.8;
+  ranksep=0.8;
+  fontname="Arial";
+  fontsize=12;
+  bgcolor="white";
+  
+  // Node styling - ensure MUCH higher contrast
+  node [shape=box, style="rounded,filled", fontname="Arial", fontsize=10, margin="0.2,0.1", height=0.4, fontcolor="white"];
+  
+  // Edge styling
+  edge [fontname="Arial", fontsize=9, arrowhead=vee, color="#333333"];
+  
+  // Color schemes - VERY bright background colors for high contrast
+  init_color = "#BBDEFB";  // Much brighter blue
+  auth_color = "#FFECB3";  // Brighter yellow
+  scrape_color = "#B2DFDB";  // Brighter teal
+  extract_color = "#E1BEE7";  // Brighter purple
+  process_color = "#D7CCC8";  // Brighter brown
+  storage_color = "#C8E6C9";  // Brighter green
+  error_color = "#FFCDD2";    // Brighter red
+  
+  // Initialization phase
+  initialize [label="Initialize CragScraper", fillcolor=init_color, style="filled"];
+  setup_rate_limit [label="Setup Rate Limiting", fillcolor=init_color, style="filled"];
+  setup_playwright [label="Initialize Playwright\n(if needed)", fillcolor=init_color, style="filled"];
+  
+  initialize -> setup_rate_limit;
+  setup_rate_limit -> setup_playwright;
+  
+  // Authentication phase
+  auth_check [label="Authentication Required?", shape=diamond, fillcolor=auth_color, style="filled"];
+  standard_login [label="Standard HTTP Login", fillcolor=auth_color, style="filled"];
+  playwright_login [label="Playwright Login", fillcolor=auth_color, style="filled"];
+  auth_success [label="Authentication Success?", shape=diamond, fillcolor=auth_color, style="filled"];
+  auth_fail [label="Authentication Failed", fillcolor=error_color, style="filled"];
+  
+  setup_playwright -> auth_check;
+  auth_check -> standard_login [label="Yes"];
+  auth_check -> start_scraping [label="No"];
+  standard_login -> auth_success;
+  auth_success -> playwright_login [label="No"];
+  playwright_login -> auth_success [label="retry"];
+  auth_success -> auth_fail [label="No (after retry)"];
+  auth_success -> start_scraping [label="Yes"];
+  
+  // Scraping phase
+  start_scraping [label="Start Crag Scraping", fillcolor=scrape_color, style="filled"];
+  get_boulder_urls [label="Extract Boulder URLs", fillcolor=scrape_color, style="filled"];
+  batch_process [label="Process Boulders in Batches", fillcolor=scrape_color, style="filled"];
+  
+  start_scraping -> get_boulder_urls;
+  get_boulder_urls -> batch_process;
+  
+  // Boulder processing
+  for_each_boulder [label="For Each Boulder", shape=folder, fillcolor=extract_color, style="filled"];
+  check_js_needed [label="JavaScript Rendering\nNeeded?", shape=diamond, fillcolor=extract_color, style="filled"];
+  get_standard_html [label="Get HTML with\nStandard Request", fillcolor=extract_color, style="filled"];
+  get_js_html [label="Get HTML with\nPlaywright", fillcolor=extract_color, style="filled"];
+  extract_boulder_data [label="Extract Boulder Data\n(Name, GPS, etc.)", fillcolor=extract_color, style="filled"];
+  
+  batch_process -> for_each_boulder;
+  for_each_boulder -> check_js_needed;
+  check_js_needed -> get_standard_html [label="No"];
+  check_js_needed -> get_js_html [label="Yes"];
+  get_standard_html -> extract_boulder_data;
+  get_js_html -> extract_boulder_data;
+  
+  // Photo extraction
+  extract_photos [label="Extract Boulder Photos", fillcolor=extract_color, style="filled"];
+  for_each_route [label="For Each Route", shape=folder, fillcolor=extract_color, style="filled"];
+  extract_route_data [label="Extract Route Data\n(Name, Grade, etc.)", fillcolor=extract_color, style="filled"];
+  
+  extract_boulder_data -> extract_photos;
+  extract_photos -> for_each_route;
+  for_each_route -> extract_route_data;
+  
+  // Route line processing
+  check_route_lines [label="Route Lines Present?", shape=diamond, fillcolor=process_color, style="filled"];
+  extract_route_lines [label="Extract Route Lines\nfrom SVG Paths", fillcolor=process_color, style="filled"];
+  normalize_coordinates [label="Normalize Line\nCoordinates", fillcolor=process_color, style="filled"];
+  
+  extract_route_data -> check_route_lines;
+  check_route_lines -> extract_route_lines [label="Yes"];
+  check_route_lines -> next_route [label="No"];
+  extract_route_lines -> normalize_coordinates;
+  normalize_coordinates -> next_route;
+  
+  // Next item processing - ensure these have background colors
+  next_route [label="Next Route", shape=ellipse, fillcolor="white", style="filled", color="#333333"];
+  next_boulder [label="Next Boulder", shape=ellipse, fillcolor="white", style="filled", color="#333333"];
+  
+  next_route -> for_each_route [label="More routes", style=dashed];
+  next_route -> next_boulder [label="Done with routes"];
+  next_boulder -> for_each_boulder [label="More boulders", style=dashed];
+  next_boulder -> prepare_storage [label="All boulders processed"];
+  
+  // Storage phase
+  prepare_storage [label="Prepare Data for Storage", fillcolor=storage_color, style="filled"];
+  get_sector_mappings [label="Get Boulder-Sector\nMappings", fillcolor=storage_color, style="filled"];
+  store_boulders [label="Store Boulders", fillcolor=storage_color, style="filled"];
+  store_photos [label="Store Boulder Photos", fillcolor=storage_color, style="filled"];
+  store_routes [label="Store Routes", fillcolor=storage_color, style="filled"];
+  store_route_lines [label="Store Route Lines", fillcolor=storage_color, style="filled"];
+  
+  prepare_storage -> get_sector_mappings;
+  get_sector_mappings -> store_boulders;
+  store_boulders -> store_photos;
+  store_photos -> store_routes;
+  store_routes -> store_route_lines;
+  
+  // Finalization
+  finalize [label="Return Scraping Results", fillcolor=storage_color, style="filled"];
+  
+  store_route_lines -> finalize;
+  
+  // Error handling - ensure these have proper fill and high contrast
+  rate_limit [label="Rate Limit\nEnforcement", style="filled", fillcolor=process_color, color="#333333", penwidth=1];
+  error_handling [label="Error Handling &\nRetry Logic", style="filled", fillcolor=error_color, color="#333333", penwidth=1];
+  
+  // Special connections for rate limiting and error handling
+  get_boulder_urls -> rate_limit [style=dashed, dir=both, color="#555555"];
+  batch_process -> rate_limit [style=dashed, dir=both, color="#555555"];
+  get_standard_html -> rate_limit [style=dashed, dir=both, color="#555555"];
+  get_js_html -> rate_limit [style=dashed, dir=both, color="#555555"];
+  
+  get_standard_html -> error_handling [style=dashed, dir=both, color="#555555"];
+  get_js_html -> error_handling [style=dashed, dir=both, color="#555555"];
+  standard_login -> error_handling [style=dashed, dir=both, color="#555555"];
+  playwright_login -> error_handling [style=dashed, dir=both, color="#555555"];
+  extract_boulder_data -> error_handling [style=dashed, dir=both, color="#555555"];
+  extract_route_data -> error_handling [style=dashed, dir=both, color="#555555"];
+  extract_route_lines -> error_handling [style=dashed, dir=both, color="#555555"];
+  
+  // Define subgraphs for phases - MUCH lighter/brighter background colors
+  subgraph cluster_init {
+    label="Initialization";
+    style=filled;
+    color="#BBDEFB";
+    bgcolor="#BBDEFB10";
+    fontcolor="black";
+    initialize; setup_rate_limit; setup_playwright;
+  }
+  
+  subgraph cluster_auth {
+    label="Authentication";
+    style=filled;
+    color="#FFECB3";
+    bgcolor="#FFECB310";
+    fontcolor="black";
+    auth_check; standard_login; playwright_login; auth_success; auth_fail;
+  }
+  
+  subgraph cluster_scraping {
+    label="Scraping";
+    style=filled;
+    color="#B2DFDB";
+    bgcolor="#B2DFDB10";
+    fontcolor="black";
+    start_scraping; get_boulder_urls; batch_process;
+  }
+  
+  subgraph cluster_extraction {
+    label="Data Extraction";
+    style=filled;
+    color="#E1BEE7";
+    bgcolor="#E1BEE710";
+    fontcolor="black";
+    for_each_boulder; check_js_needed; get_standard_html; get_js_html;
+    extract_boulder_data; extract_photos; for_each_route; extract_route_data;
+  }
+  
+  subgraph cluster_processing {
+    label="Route Line Processing";
+    style=filled;
+    color="#D7CCC8";
+    bgcolor="#D7CCC810";
+    fontcolor="black";
+    check_route_lines; extract_route_lines; normalize_coordinates;
+    next_route; next_boulder; rate_limit;
+  }
+  
+  subgraph cluster_storage {
+    label="Data Storage";
+    style=filled;
+    color="#C8E6C9";
+    bgcolor="#C8E6C910";
+    fontcolor="black";
+    prepare_storage; get_sector_mappings; store_boulders; 
+    store_photos; store_routes; store_route_lines; finalize;
+  }
+} 

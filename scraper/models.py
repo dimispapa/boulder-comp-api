@@ -50,18 +50,28 @@ class Route:
 @dataclass
 class BoulderPhoto:
     id: str  # Unique identifier for the photo
-    url: str
-    lines_data: Dict[str,
-                     Any]  # Raw lines data from the page (includes all routes)
+    source_url: str
+    lines_data: Dict[str, Any] = field(default_factory=dict)
+    order: int = 1
 
-    def __init__(self, id: str, url: str, lines_data: dict = None):
+    def __init__(self,
+                 id: str,
+                 source_url: str,
+                 order: int,
+                 lines_data: dict = None):
         self.id = id
-        self.url = url
+        self.source_url = source_url
+        self.order = order
         self.lines_data = lines_data or {}  # Default to empty dict if None
 
     def to_dict(self):
         """Convert to dictionary for JSON serialization."""
-        return {'id': self.id, 'url': self.url, 'lines_data': self.lines_data}
+        return {
+            'id': self.id,
+            'source_url': self.source_url,
+            'order': self.order,
+            'lines_data': self.lines_data
+        }
 
 
 @dataclass

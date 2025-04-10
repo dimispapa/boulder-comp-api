@@ -10,16 +10,16 @@ from bs4 import BeautifulSoup
 import time
 import os
 from typing import Dict, Optional, List
-from supabase import Client
+from sqlmodel import Session
 from urllib.parse import urljoin
 from dotenv import load_dotenv
 import random
 
-from utils.general_utils import normalize_url
+from utils.general_utils import normalize_url, format_name
 from utils.loggers import logger
 from .models import Crag, Boulder, Route, BoulderPhoto, RouteLineData
-from utils.auth_utils import check_requires_authentication, standard_login
-from utils.playwright_utils import PlaywrightSession, extract_session_cookies
+from .auth_utils import check_requires_authentication, standard_login
+from .playwright_utils import PlaywrightSession, extract_session_cookies
 
 # Load environment variables
 load_dotenv()
@@ -34,26 +34,30 @@ class CragScraper:
     Includes rate limiting, authentication, and data extraction.
     """
 
-    def __init__(self, headers: Dict[str, str], supabase: Client,
-                 crag_name: str):
+    def __init__(self,
+                 headers: Dict[str, str],
+                 session: Session = None,
+                 crag_name: str = None):
         """
-        Initialize the scraper with headers and Supabase client.
+        Initialize the scraper with headers and database session.
 
         Args:
             headers (dict): HTTP headers for requests
-            supabase (Client): Initialized Supabase client
-            crag_name (str): Name of the crag to scrape
+            session (Session, optional): Database session for storing data
+            crag_name (str, optional): Name of the crag to scrape
         """
         self.headers = headers
-        self.supabase = supabase
-        self.session = requests.Session()
+        self.session = session
+        self.own_session = session is None
+        self.http_session = requests.Session()
         self.last_request_time = 0
         self.batch_size = 3
         self.batch_delay = 0.1
         self.domain = os.getenv("CRAGS_DOMAIN")
         self.login_url = urljoin(self.domain, "login")
         self.crag_name = crag_name
-        self.crag_url = urljoin(self.domain, f"crags/{crag_name}")
+        self.crag_url = urljoin(self.domain,
+                                f"crags/{crag_name}") if crag_name else None
 
         # Configuration
         self.min_request_interval = float(
@@ -386,7 +390,7 @@ class CragScraper:
                         boulder_url = normalize_url(boulder_url)
                         # Extract boulder data
                         boulder = await self._extract_boulder_data(
-                            boulder_element, async_session)
+                            boulder_element, boulder_url, async_session)
                         if boulder:  # Only append valid boulders
                             boulders.append(boulder)
                         else:
@@ -440,7 +444,7 @@ class CragScraper:
                 return {"success": False, "skipped_boulders": skipped_boulders}
 
     async def _extract_boulder_data(
-            self, boulder_element: BeautifulSoup,
+            self, boulder_element: BeautifulSoup, boulder_url: str,
             async_session: aiohttp.ClientSession) -> Optional[Boulder]:
         """
         Extract data from a boulder element.
@@ -448,27 +452,20 @@ class CragScraper:
         Args:
             boulder_element (BeautifulSoup): HTML element containing boulder
             data
-            session (aiohttp.ClientSession): Active aiohttp session
+            boulder_url (str): URL of the boulder
+            async_session (aiohttp.ClientSession): Active aiohttp session
 
         Returns:
             Optional[Boulder]: Boulder object if successful, None otherwise
         """
         try:
-            # Extract boulder URL from anchor element
-            boulder_url = urljoin(self.domain, boulder_element['href'])
-            if not boulder_url:
-                logger.error(f"No boulder link found for {boulder_element}")
-                return None
-
             # Get the boulder name and boulder url name
-            boulder_name = boulder_element.find('div', attrs={
-                'class': 'name'
-            }).text.strip()
-            boulder_display_name = boulder_name
-            boulder_url_name = boulder_element['href'].split('/')[-1]
+            boulder_display_name = boulder_element.find(
+                'div', class_='name').text.strip()
+            boulder_name = format_name(boulder_display_name)
+            boulder_url_name = boulder_url.split('/')[-1]
             # Get the boulder page
             boulder_page = await self.get_html(boulder_url, async_session)
-
             # Get the GPS lat, lon string
             gps_string = boulder_page.find(
                 'a', class_=['sector-property',
@@ -504,16 +501,20 @@ class CragScraper:
                     logger.debug(
                         f"Processing photo {idx + 1}/{len(img_divs)} for "
                         f"boulder '{boulder_name}': {img_url}")
-
-                    # Generate a unique photo ID with positive hash values
-                    photo_id = f"{abs(hash(img_url))}_{idx}"
+                    # Get the order of the photo
+                    order = idx + 1
+                    # Generate a photo ID using
+                    # crag_sector_boulder_number format for easy
+                    # replacement and reference of photos
+                    photo_id = f"{self.crag_name}_{boulder_name}_{order}"
 
                     # Extract lines data from JavaScript elements
                     lines_data = self._extract_lines_data(img_div, photo_id)
 
                     # Always create and add the photo, even without lines data
                     photo = BoulderPhoto(id=photo_id,
-                                         url=img_url,
+                                         source_url=img_url,
+                                         order=order,
                                          lines_data=lines_data or {})
                     boulder_photos.append(photo)
                     logger.debug(
@@ -593,9 +594,11 @@ class CragScraper:
                 logger.debug(f"- Number of lines: {len(lines_data['lines'])}")
 
                 # Create a BoulderPhoto object with all the lines data
-                photo = BoulderPhoto(id=photo_id,
-                                     url=img_url,
-                                     lines_data=lines_data)
+                photo = BoulderPhoto(
+                    id=photo_id,
+                    source_url=img_url,
+                    order=1,  # Default order
+                    lines_data=lines_data)
 
                 logger.debug(
                     f"Successfully extracted lines data for photo {photo_id} "
@@ -643,8 +646,8 @@ class CragScraper:
             # Extract route URL and name
             route_url = urljoin(self.domain, anchor['href'])
             route_url = normalize_url(route_url)
-            route_name = anchor.text.strip()
-
+            route_display_name = anchor.text.strip()
+            route_name = format_name(route_display_name)
             # Extract grade
             grade_element = route_element.find('span',
                                                attrs={'class': 'grade'})
@@ -689,9 +692,9 @@ class CragScraper:
                                      f"{img_url}")
 
                         # Find matching boulder photo
-                        matching_photo = next(
-                            (p for p in boulder_photos if p.url == img_url),
-                            None)
+                        matching_photo = next((p for p in boulder_photos
+                                               if p.source_url == img_url),
+                                              None)
 
                         if matching_photo:
                             logger.debug(f"Found matching boulder photo: "
@@ -722,7 +725,7 @@ class CragScraper:
                           rating=rating,
                           description=route_description,
                           line_data=route_line_data,
-                          display_name=route_name)
+                          display_name=route_display_name)
 
             logger.debug(f"Created route object for '{route_name}' with "
                          f"{len(route_line_data)} line datasets")

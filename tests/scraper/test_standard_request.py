@@ -10,7 +10,7 @@ import aiohttp
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from utils.loggers import logger
-from utils.auth_utils import standard_login
+from scraper.auth_utils import standard_login
 
 # Load environment variables
 load_dotenv()

@@ -40,6 +40,7 @@ ENV/
 .env
 *.pyc
 *.log
+logs/
 celerybeat-schedule
 .vscode/
 .idea/
@@ -58,3 +59,7 @@ data/
 # Test debug files
 tests/scraper/debug/
 *.test_data/
+
+# Python pip installer
+get_pip.py
+get-pip.py

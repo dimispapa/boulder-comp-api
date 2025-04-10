@@ -8,7 +8,7 @@ import json
 import pytest
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
-from utils.playwright_utils import PlaywrightSession
+from scraper.playwright_utils import PlaywrightSession
 from utils.loggers import logger
 
 # Load environment variables

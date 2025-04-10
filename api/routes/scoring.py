@@ -1,15 +1,18 @@
 """
 FastAPI router for the scoring endpoints.
 """
-from fastapi import APIRouter, HTTPException, BackgroundTasks
-from pydantic import BaseModel
-from typing import Dict, Any, Optional
-from scoring.core import ScoreCalculator
-from celery import shared_task
-from datetime import datetime
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
+from typing import Optional
+from sqlmodel import Session
+from scoring.models import ScoreCalculationRequest
 from dotenv import load_dotenv
-from utils.supabase import get_admin_supabase_client
+from database.management.base import get_db
+from database.crud.scoring import (get_all_marathon_rankings,
+                                   get_all_boulder_beasts_rankings)
+from database.crud.competitions import (get_competition_by_id,
+                                        get_all_competitions)
 from utils.loggers import logger
+from tasks.scoring_tasks import calculate_scores
 
 # Load environment variables
 load_dotenv()
@@ -17,80 +20,52 @@ load_dotenv()
 # Initialize router
 router = APIRouter()
 
-# Initialize Supabase client
-supabase = get_admin_supabase_client()
 
-# Initialize score calculator
-score_calculator = ScoreCalculator(supabase)
-
-
-# Request models
-class ScoreCalculationRequest(BaseModel):
-    competition_id: str
-    update_leaderboard: bool = True
-    category: Optional[str] = None  # "marathon", "boulder_beasts", or None for both
-
-
-# Response models
-class ScoreCalculationResponse(BaseModel):
-    task_id: str
-    status: str
-    message: str
-
-
-@shared_task
-async def calculate_scores_task(comp_id: str, category: Optional[str] = None):
-    """Celery task to calculate competition scores."""
-    try:
-        # Calculate scores
-        rankings = await score_calculator.calculate_scores(comp_id)
-
-        # Filter by category if specified
-        if category:
-            if category == "marathon":
-                return {"status": "success", "rankings": rankings["marathon"]}
-            elif category == "boulder_beasts":
-                return {"status": "success", "rankings": rankings["boulder_beasts"]}
-            else:
-                return {"status": "error", "detail": f"Invalid category: {category}"}
-
-        return {"status": "success", "rankings": rankings}
-
-    except Exception as e:
-        return {"status": "error", "detail": str(e)}
-
-
-@router.post("/calculate/{comp_id}")
-async def start_score_calculation(comp_id: str,
-                                request: ScoreCalculationRequest,
-                                background_tasks: BackgroundTasks):
+@router.post("/calculate")
+async def start_score_calculation(request: ScoreCalculationRequest,
+                                  background_tasks: BackgroundTasks,
+                                  session: Session = Depends(get_db)):
     """
     Start calculating scores for a competition.
-    
+
     Args:
-        comp_id (str): ID of the competition
-        request (ScoreCalculationRequest): Request parameters
+        request (ScoreCalculationRequest): Request parameters including
+                                           competition_id
         background_tasks (BackgroundTasks): FastAPI background tasks
-        
+        session (Session): Database session
+
     Returns:
         dict: Status of the calculation task
     """
     try:
-        # Get competition details to validate categories
-        comp = await score_calculator._get_competition(comp_id)
+        comp_id = request.competition_id
+        logger.info(
+            f"Received score calculation request for competition {comp_id}, "
+            f"category: {request.category}")
+
+        # Get competition details
+        comp = get_competition_by_id(session, comp_id)
         if not comp:
+            logger.error(f"Competition {comp_id} not found")
             raise HTTPException(status_code=404,
-                              detail=f"Competition {comp_id} not found")
+                                detail=f"Competition {comp_id} not found")
+
+        # Get competition categories
+        categories = comp.categories
+        category_types = [cat.category_type for cat in categories]
 
         # Validate category if specified
-        if request.category and request.category not in comp['categories']:
+        if request.category and request.category not in category_types:
+            logger.error(f"Category {request.category} not enabled for "
+                         f"competition {comp_id}")
             raise HTTPException(
                 status_code=400,
-                detail=f"Category {request.category} not enabled for this competition"
-            )
+                detail=f"Category {request.category} not enabled for "
+                f"this competition")
 
-        # Queue the calculation task
-        task = calculate_scores_task.delay(comp_id, request.category)
+        # Queue the calculation task using the imported task
+        task = calculate_scores.delay(comp_id, request.category)
+        logger.info(f"Score calculation task queued with ID: {task.id}")
 
         return {
             "status": "success",
@@ -101,225 +76,281 @@ async def start_score_calculation(comp_id: str,
     except HTTPException as e:
         raise e
     except Exception as e:
+        logger.error(f"Failed to start calculation: {str(e)}")
         raise HTTPException(status_code=500,
-                          detail=f"Failed to start calculation: {str(e)}")
+                            detail=f"Failed to start calculation: {str(e)}")
 
 
 @router.get("/status/{task_id}")
 async def get_calculation_status(task_id: str):
     """
     Get the status of a score calculation task.
-    
+
     Args:
         task_id (str): ID of the task to check
-        
+
     Returns:
         dict: Current status of the task
     """
     try:
-        task = calculate_scores_task.AsyncResult(task_id)
+        logger.info(f"Checking status of calculation task {task_id}")
+        task = calculate_scores.AsyncResult(task_id)
 
         if task.ready():
             if task.successful():
+                logger.info(f"Task {task_id} completed successfully")
                 return {"status": "completed", "result": task.result}
             else:
+                logger.error(f"Task {task_id} failed: {str(task.result)}")
                 return {"status": "failed", "error": str(task.result)}
         else:
+            logger.info(f"Task {task_id} still in progress")
             return {"status": "in_progress"}
 
     except Exception as e:
+        logger.error(f"Failed to get task status: {str(e)}")
         raise HTTPException(status_code=500,
-                          detail=f"Failed to get task status: {str(e)}")
+                            detail=f"Failed to get task status: {str(e)}")
 
 
 @router.get("/rankings/{comp_id}")
 async def get_competition_rankings(comp_id: str,
-                                 category: Optional[str] = None):
+                                   category: Optional[str] = None,
+                                   session: Session = Depends(get_db)):
     """
     Get the latest rankings for a competition.
-    
+
     Args:
         comp_id (str): ID of the competition
-        category (str, optional): Filter by category ("marathon" or "boulder_beasts")
-        
+        category (str, optional): Filter by category
+        ("marathon" or "boulder_beasts")
+        session (Session): Database session
+
     Returns:
         dict: Latest competition rankings
     """
     try:
-        # Get competition details to validate categories
-        comp = await score_calculator._get_competition(comp_id)
+        logger.info(f"Fetching rankings for competition {comp_id}, "
+                    f"category: {category}")
+
+        # Get competition
+        comp = get_competition_by_id(session, comp_id)
         if not comp:
+            logger.error(f"Competition {comp_id} not found")
             raise HTTPException(status_code=404,
-                              detail=f"Competition {comp_id} not found")
+                                detail=f"Competition {comp_id} not found")
+
+        # Get active competition categories
+        categories = comp.categories
+        category_types = [cat.category_type for cat in categories]
 
         # Validate category if specified
-        if category and category not in comp['categories']:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Category {category} not enabled for this competition"
-            )
+        if category and category not in category_types:
+            logger.error(f"Category {category} not enabled for "
+                         f"competition {comp_id}")
+            raise HTTPException(status_code=400,
+                                detail=f"Category {category} not enabled for "
+                                f"this competition")
 
         if category:
             if category == "marathon":
-                table = "marathon_rankings"
+                # Get marathon rankings
+                rankings = get_all_marathon_rankings(session)
+                # Filter by competition ID
+                comp_id_uuid = comp_id  # Assuming comp_id is already a UUID
+                rankings = [
+                    r for r in rankings if r.competition_id == comp_id_uuid
+                ]
+
+                if not rankings:
+                    logger.error(
+                        f"No marathon rankings found for competition {comp_id}"
+                    )
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"No marathon rankings found for "
+                        f"competition {comp_id}")
+
+                # Convert to dictionary format
+                rankings_data = []
+                for rank in rankings:
+                    rankings_data.append({
+                        "id": str(rank.id),
+                        "team_id": str(rank.team_id),
+                        "base_score": rank.base_score,
+                        "volume_score": rank.volume_score,
+                        "unique_ascent_score": rank.unique_ascent_score,
+                        "team_ascent_bonus": rank.team_ascent_bonus,
+                        "master_grade_bonus": rank.master_grade_bonus,
+                        "total_score": rank.total_score,
+                        "normalized_score": rank.normalized_score,
+                        "rank": rank.rank
+                    })
+
+                logger.info(
+                    f"Returning marathon rankings for competition {comp_id}")
+                return {"status": "success", "rankings": rankings_data}
+
             elif category == "boulder_beasts":
-                table = "boulder_beasts_rankings"
+                # Get boulder beasts rankings
+                rankings = get_all_boulder_beasts_rankings(session)
+                # Filter by competition ID
+                comp_id_uuid = comp_id  # Assuming comp_id is already a UUID
+                rankings = [
+                    r for r in rankings if r.competition_id == comp_id_uuid
+                ]
+
+                if not rankings:
+                    logger.error(f"No boulder beasts rankings found for "
+                                 f"competition {comp_id}")
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"No boulder beasts rankings found for "
+                        f"competition {comp_id}")
+
+                # Convert to dictionary format
+                rankings_data = []
+                for rank in rankings:
+                    rankings_data.append({
+                        "id":
+                        str(rank.id),
+                        "participant_id":
+                        str(rank.participant_id),
+                        "top_grades":
+                        rank.top_grades_dict,
+                        "total_score":
+                        rank.total_score,
+                        "rank":
+                        rank.rank
+                    })
+
+                logger.info(
+                    f"Returning boulder beasts rankings for comp {comp_id}")
+                return {"status": "success", "rankings": rankings_data}
+
             else:
+                logger.error(f"Invalid category requested: {category}")
                 raise HTTPException(status_code=400,
-                                  detail=f"Invalid category: {category}")
+                                    detail=f"Invalid category: {category}")
         else:
             # Get both categories
-            marathon_result = supabase.table("marathon_rankings").select(
-                "*").eq("competition_id", comp_id).order("rank").execute()
+            marathon_rankings = get_all_marathon_rankings(session)
+            boulder_beasts_rankings = get_all_boulder_beasts_rankings(session)
 
-            boulder_beasts_result = supabase.table(
-                "boulder_beasts_rankings").select("*").eq(
-                    "competition_id", comp_id).order("rank").execute()
+            # Filter by competition ID
+            comp_id_uuid = comp_id  # Assuming comp_id is already a UUID
+            marathon_rankings = [
+                r for r in marathon_rankings
+                if r.competition_id == comp_id_uuid
+            ]
+            boulder_beasts_rankings = [
+                r for r in boulder_beasts_rankings
+                if r.competition_id == comp_id_uuid
+            ]
 
-            if not marathon_result.data and not boulder_beasts_result.data:
+            if not marathon_rankings and not boulder_beasts_rankings:
+                logger.error(f"No rankings found for competition {comp_id}")
                 raise HTTPException(
                     status_code=404,
                     detail=f"No rankings found for competition {comp_id}")
 
+            # Convert to dictionary format
+            marathon_data = []
+            for rank in marathon_rankings:
+                marathon_data.append({
+                    "id": str(rank.id),
+                    "team_id": str(rank.team_id),
+                    "base_score": rank.base_score,
+                    "volume_score": rank.volume_score,
+                    "unique_ascent_score": rank.unique_ascent_score,
+                    "team_ascent_bonus": rank.team_ascent_bonus,
+                    "master_grade_bonus": rank.master_grade_bonus,
+                    "total_score": rank.total_score,
+                    "normalized_score": rank.normalized_score,
+                    "rank": rank.rank
+                })
+
+            boulder_beasts_data = []
+            for rank in boulder_beasts_rankings:
+                boulder_beasts_data.append({
+                    "id":
+                    str(rank.id),
+                    "participant_id":
+                    str(rank.participant_id),
+                    "top_grades":
+                    rank.top_grades_dict,
+                    "total_score":
+                    rank.total_score,
+                    "rank":
+                    rank.rank
+                })
+
+            logger.info(f"Returning both categories for competition {comp_id}")
             return {
                 "status": "success",
-                "marathon": marathon_result.data,
-                "boulder_beasts": boulder_beasts_result.data
+                "marathon": marathon_data,
+                "boulder_beasts": boulder_beasts_data
             }
-
-        # Get single category
-        result = supabase.table(table).select("*").eq(
-            "competition_id", comp_id).order("rank").execute()
-
-        if not result.data:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No {category} rankings found for competition {comp_id}"
-            )
-
-        return {"status": "success", "rankings": result.data}
 
     except HTTPException as e:
         raise e
     except Exception as e:
+        logger.error(f"Failed to get rankings: {str(e)}")
         raise HTTPException(status_code=500,
-                          detail=f"Failed to get rankings: {str(e)}")
+                            detail=f"Failed to get rankings: {str(e)}")
 
 
-@router.get("/leaderboard/{competition_id}")
-async def get_leaderboard(competition_id: str,
-                         category: Optional[str] = None) -> Dict[str, Any]:
+@router.get("/competitions", response_model=dict)
+async def list_competitions(session: Session = Depends(get_db)):
     """
-    Get the current leaderboard for a specific competition.
-    
+    Get a list of all competitions.
+
     Args:
-        competition_id (str): ID of the competition
-        category (str, optional): Filter by category ("marathon" or "boulder_beasts")
-        
+        session (Session): Database session
+
     Returns:
-        dict: Current leaderboard data
+        dict: List of competitions with basic details
     """
     try:
-        # Get competition details to validate categories
-        comp = await score_calculator._get_competition(competition_id)
-        if not comp:
-            raise HTTPException(status_code=404,
-                              detail=f"Competition {competition_id} not found")
+        logger.info("Fetching list of all competitions")
 
-        # Validate category if specified
-        if category and category not in comp['categories']:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Category {category} not enabled for this competition"
-            )
+        # Get all competitions from the database
+        competitions = get_all_competitions(session)
 
-        if category:
-            if category == "marathon":
-                result = supabase.table("marathon_rankings").select(
-                    "marathon_rankings.*, teams.name as team_name").eq(
-                        "competition_id",
-                        competition_id).order("rank").execute()
+        if not competitions:
+            logger.info("No competitions found in the database")
+            return {"status": "success", "competitions": []}
 
-                leaderboard = {
-                    "competition_id": competition_id,
-                    "category": "marathon",
-                    "teams": [{
-                        "team_id": rank["team_id"],
-                        "name": rank["team_name"],
-                        "score": rank["total_score"],
-                        "rank": rank["rank"]
-                    } for rank in result.data]
-                }
+        # Convert to dictionary format
+        competitions_data = []
+        for comp in competitions:
+            competitions_data.append({
+                "id":
+                str(comp.id),
+                "name":
+                comp.name,
+                "display_name":
+                comp.display_name,
+                "categories":
+                [cat.category_type for cat in comp.categories],
+                "start_date":
+                comp.start_date.isoformat(),
+                "end_date":
+                comp.end_date.isoformat(),
+                "status":
+                comp.status,
+                "crag":
+                comp.crag,
+                "venue":
+                comp.venue or "N/A",
+                "description":
+                comp.description or "No description"
+            })
 
-            elif category == "boulder_beasts":
-                result = supabase.table("boulder_beasts_rankings").select(
-                    "boulder_beasts_rankings.*, participants.first_name, "
-                    "participants.last_name").eq(
-                        "competition_id",
-                        competition_id).order("rank").execute()
+        logger.info(f"Returning {len(competitions_data)} competitions")
+        return {"status": "success", "competitions": competitions_data}
 
-                leaderboard = {
-                    "competition_id": competition_id,
-                    "category": "boulder_beasts",
-                    "participants": [{
-                        "participant_id": rank["participant_id"],
-                        "name": f"{rank['first_name']} {rank['last_name']}",
-                        "score": rank["total_score"],
-                        "rank": rank["rank"],
-                        "top_grades": rank["top_grades"]
-                    } for rank in result.data]
-                }
-
-            else:
-                raise HTTPException(status_code=400,
-                                  detail=f"Invalid category: {category}")
-        else:
-            # Get both categories
-            marathon_result = supabase.table("marathon_rankings").select(
-                "marathon_rankings.*, teams.name as team_name").eq(
-                    "competition_id", competition_id).order("rank").execute()
-
-            boulder_beasts_result = supabase.table(
-                "boulder_beasts_rankings").select(
-                    "boulder_beasts_rankings.*, participants.first_name, "
-                    "participants.last_name").eq(
-                        "competition_id",
-                        competition_id).order("rank").execute()
-
-            leaderboard = {
-                "competition_id": competition_id,
-                "marathon": {
-                    "teams": [{
-                        "team_id": rank["team_id"],
-                        "name": rank["team_name"],
-                        "score": rank["total_score"],
-                        "rank": rank["rank"]
-                    } for rank in marathon_result.data]
-                },
-                "boulder_beasts": {
-                    "participants": [{
-                        "participant_id": rank["participant_id"],
-                        "name": f"{rank['first_name']} {rank['last_name']}",
-                        "score": rank["total_score"],
-                        "rank": rank["rank"],
-                        "top_grades": rank["top_grades"]
-                    } for rank in boulder_beasts_result.data]
-                }
-            }
-
-        if not leaderboard.get("teams", []) and not leaderboard.get(
-                "participants", []):
-            raise HTTPException(
-                status_code=404,
-                detail=f"No leaderboard found for competition {competition_id}"
-            )
-
-        leaderboard["last_updated"] = datetime.now().isoformat()
-        return {"status": "success", "data": leaderboard}
-
-    except HTTPException as e:
-        raise e
     except Exception as e:
-        logger.error(f"Error fetching leaderboard: {str(e)}")
+        logger.error(f"Failed to get competitions: {str(e)}")
         raise HTTPException(status_code=500,
-                          detail=f"Failed to fetch leaderboard: {str(e)}")
+                            detail=f"Failed to get competitions: {str(e)}")

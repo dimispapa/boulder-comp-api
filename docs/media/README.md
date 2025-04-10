@@ -4,6 +4,14 @@
 
 This application uses Cloudinary as its image hosting solution for both boulder photos and competition-submitted images. This document outlines our storage architecture, security model, and optimization strategies.
 
+## Media Storage Flow
+
+The media storage system handles two distinct photo workflows - boulder photos (from scraping) and competition photos (from user uploads). The complete flow is illustrated in the diagram below:
+
+![Media Storage Flow](media_storage_flow.png)
+
+*Note: To regenerate this diagram, use the DOT file located at `docs/media/media_storage_flow.dot` with a GraphViz tool such as [Dreampuf's Online GraphViz Editor](https://dreampuf.github.io/GraphvizOnline/).*
+
 ## Storage Structure
 
 All media is organized in Cloudinary using the following folder structure:
@@ -139,7 +147,46 @@ The media storage system is implemented through:
    - Tracks approval status and moderation information
    - Links photos to their associated entities (boulders/competitions)
 
-This implementation provides a robust, scalable, and secure solution for managing both boulder photos and user-submitted competition photos.
+4. **Frontend Components**:
+   - Photo gallery component for displaying competition photos
+   - Upload component with preview and progress indication
+   - Administration interface for content moderation and management
+
+## Integration with Scraper
+
+The media storage system integrates tightly with the scraper component to automatically process and store boulder photos:
+
+1. **Automatic Extraction**: The scraper extracts photos and route lines from 27crags
+2. **Processing Pipeline**: Photos undergo processing for optimization and metadata extraction
+3. **Batch Upload**: Images are uploaded in batches to minimize API calls to Cloudinary
+4. **Database Synchronization**: Photo records are created and linked to boulders in the database
+
+## Route Line Visualization
+
+In addition to storing photos, the system handles route line data:
+
+1. **SVG Data Extraction**: Line data is extracted from 27crags SVG overlays
+2. **JSON Transformation**: SVG paths are converted to JSON format for easy overlay rendering
+3. **Client-Side Rendering**: Frontend uses the line data to overlay climb routes on boulder images
+4. **Interactive Features**: Users can toggle route lines, view difficulty, and get additional route information
+
+## Performance Considerations
+
+The system implements several optimizations for performance:
+
+1. **Lazy Loading**: Images are loaded only when needed, using Cloudinary's responsive loading techniques
+2. **Advanced Caching**: Images are cached at multiple levels (CDN, browser, application)
+3. **Connection Pooling**: Database connections are pooled for efficient photo metadata retrieval
+4. **Background Processing**: Photo uploads occur in background tasks to avoid blocking API responses
+
+## Error Handling
+
+Robust error handling ensures reliability:
+
+1. **Upload Retries**: Failed uploads are automatically retried with exponential backoff
+2. **Partial Success**: Batch operations continue even if individual items fail
+3. **Fallback Mechanisms**: If optimized images fail to load, the system falls back to original images
+4. **Monitoring**: All media operations are logged and monitored for errors
 
 ## Testing Access Control
 
@@ -147,4 +194,13 @@ You can test the competition photo access control by:
 
 1. Creating test users with different roles (admin, participant)
 2. Registering them for different competitions
-3. Verifying they can only access photos from their assigned competitions 
+3. Verifying they can only access photos from their assigned competitions
+
+## Future Improvements
+
+Planned enhancements to the media system:
+
+1. **AI-Powered Tagging**: Automatic tagging of boulder photos based on content
+2. **User Comments**: Allow users to comment on competition photos
+3. **Offline Support**: Progressive web app features for offline photo viewing
+4. **Interactive 3D Models**: Integration with photogrammetry for 3D boulder models 

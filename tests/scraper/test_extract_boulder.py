@@ -2,8 +2,10 @@
 Test for boulder data extraction in the CragScraper.
 Tests extracting data from a single boulder including photos and lines.
 
-NOTE: This test has been updated to support the new database schema that includes:
-1. Both name (URL-friendly) and display_name (human-readable) fields for boulders
+NOTE: This test has been updated to support the new database schema
+that includes:
+1. Both name (URL-friendly) and display_name (human-readable)
+fields for boulders
 2. Sector and crag relationships
 """
 import os
@@ -38,9 +40,9 @@ async def test_extract_boulder():
 
     headers = {"User-Agent": random.choice(user_agents)}
 
-    # Create scraper instance (without actual Supabase client for testing)
+    # Create scraper instance (without actual database session for testing)
     crag_name = "inia-droushia"
-    scraper = CragScraper(headers=headers, supabase=None, crag_name=crag_name)
+    scraper = CragScraper(headers=headers, session=None, crag_name=crag_name)
 
     # Create a mock boulder element
     class MockBoulderElement:
@@ -176,7 +178,8 @@ async def test_extract_boulder():
 
                     # Create and add the photo
                     photo = BoulderPhoto(id=photo_id,
-                                         url=img_url,
+                                         source_url=img_url,
+                                         order=idx,
                                          lines_data=lines_data)
                     boulder_photos.append(photo)
                     logger.debug(f"Added photo {photo_id} to boulder "
@@ -227,7 +230,7 @@ async def test_extract_boulder():
         if hasattr(boulder, 'photos') and boulder.photos:
             logger.info(f"Boulder has {len(boulder.photos)} photos")
             for photo in boulder.photos:
-                assert photo.url, "Photo URL is missing"
+                assert photo.source_url, "Photo URL is missing"
                 if photo.lines_data and 'lines' in photo.lines_data:
                     logger.info(
                         f"Photo has {len(photo.lines_data['lines'])} lines")
