@@ -196,7 +196,7 @@ def get_solo_participants(session: Session,
     """Get all solo participants (boulder beasts) for a competition."""
     statement = select(Participant).where(
         Participant.competition_id == comp_id,
-        Participant.solo_entry == True  # noqa: E712
+        Participant.is_solo == True  # noqa: E712
     )
     return session.exec(statement).all()
 

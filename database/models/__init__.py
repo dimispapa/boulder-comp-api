@@ -9,7 +9,7 @@ from database.models.crags import (  # noqa: F401
     Crag, Sector, Boulder, Route, BoulderSectorMapping)
 from database.models.competitions import (  # noqa: F401
     Competition, Team, Participant, Ascent, CompetitionCategory, CategoryType,
-    CompetitionStatus)
+    CompetitionStatus, CompVoucher)
 from database.models.scoring import (  # noqa: F401
     BasePoints, VolumeBonus, UniqueAscentBonus, TeamAscentBonus,
     MasterGradeBonus, MarathonRanking, MarathonDetailedResults,
@@ -17,6 +17,6 @@ from database.models.scoring import (  # noqa: F401
 )
 from database.models.media import CompetitionPhoto, BoulderPhoto  # noqa: F401
 from database.models.accounts import (  # noqa: F401
-    User, CompVoucher)
+    User, UserOtp)
 
 # This allows imports like: from database.models import Crag, Sector, etc.

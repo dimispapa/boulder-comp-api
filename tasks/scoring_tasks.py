@@ -10,6 +10,7 @@ import asyncio
 from database.management.base import get_db_session
 from database.crud.competitions import get_competition_by_id
 from utils.loggers import logger
+from scoring.data_storage import convert_nested_types
 
 # Load environment variables
 load_dotenv()
@@ -46,9 +47,7 @@ def calculate_scores(self, comp_id: str, category: Optional[str] = None):
 
             # Get competition categories
             categories = comp.categories
-            category_types = [
-                cat.category_type for cat in categories
-            ]
+            category_types = [cat.category_type for cat in categories]
 
             logger.info(f"Found competition {comp_id}: {comp.name}, "
                         f"categories: {category_types}")
@@ -110,13 +109,15 @@ def calculate_scores(self, comp_id: str, category: Optional[str] = None):
                     logger.info("Returning filtered marathon rankings")
                     return {
                         "status": "success",
-                        "rankings": rankings["marathon"]
+                        "rankings": convert_nested_types(rankings["marathon"])
                     }
                 elif category == "boulder_beasts":
                     logger.info("Returning filtered boulder beasts rankings")
                     return {
-                        "status": "success",
-                        "rankings": rankings["boulder_beasts"]
+                        "status":
+                        "success",
+                        "rankings":
+                        convert_nested_types(rankings["boulder_beasts"])
                     }
                 else:
                     logger.error(f"Invalid category: {category}")
@@ -126,7 +127,10 @@ def calculate_scores(self, comp_id: str, category: Optional[str] = None):
                     }
 
             logger.info(f"Returning all rankings for competition {comp_id}")
-            return {"status": "success", "rankings": rankings}
+            return {
+                "status": "success",
+                "rankings": convert_nested_types(rankings)
+            }
 
     except Exception as e:
         logger.error(f"Error in score calculation task: {str(e)}")

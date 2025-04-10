@@ -186,7 +186,7 @@ async def get_competition_photos(
                 "uploader_id": str(photo.uploader_id),
                 "featured": photo.featured,
                 "approved": photo.approved,
-                "created_at": photo.created_at.isoformat()
+                "inserted_at": photo.inserted_at.isoformat()
             })
 
         return {

@@ -5,6 +5,7 @@ import os
 from contextlib import contextmanager
 from dotenv import load_dotenv
 from sqlmodel import SQLModel, Session, create_engine
+from sqlalchemy import text
 from typing import Generator
 
 from utils.loggers import logger
@@ -31,9 +32,19 @@ engine = create_engine(
 def drop_tables():
     """Drop all tables defined by SQLModel models."""
 
-    # This will drop all tables in reverse dependency order
+    # Drop all tables first in reverse dependency order
     SQLModel.metadata.drop_all(engine)
-    logger.info("All database tables have been dropped")
+
+    # Then explicitly drop enum types that might not be cleaned up
+    # This is needed for PostgreSQL which doesn't auto-drop enum types
+    with engine.connect() as connection:
+        # Get a raw connection to run SQL directly
+        with connection.begin():
+            # Drop enum types with CASCADE to handle dependencies
+            connection.execute(text("DROP TYPE IF EXISTS userrole CASCADE;"))
+            # Add any other enum types you have here
+
+    logger.info("All database tables and enum types have been dropped")
 
 
 def create_db_and_tables(reset=False):

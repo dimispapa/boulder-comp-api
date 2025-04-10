@@ -6,48 +6,48 @@ digraph G {
   /* Styling */
   /* Bouldering data tables */
   crags [style=filled, color="#E6F3FF", 
-    label="{crags|id: UUID PK\lname: text\ldisplay_name: text\ldescription: text?\lcreated_at: timestamp\lupdated_at: timestamp\l}"];
+    label="{crags|id: UUID PK\lname: text\ldisplay_name: text\ldescription: text?\linserted_at: timestamp\lupdated_at: timestamp\l}"];
   
   sectors [style=filled, color="#E6F3FF", 
-    label="{sectors|id: UUID PK\lname: text\ldisplay_name: text\lcrag_id: UUID FK\ldescription: text?\lcreated_at: timestamp\lupdated_at: timestamp\l}"];
+    label="{sectors|id: UUID PK\lname: text\ldisplay_name: text\lcrag_id: UUID FK\ldescription: text?\linserted_at: timestamp\lupdated_at: timestamp\l}"];
   
   boulders [style=filled, color="#E6F3FF", 
-    label="{boulders|id: UUID PK\lname: text\ldisplay_name: text\lurl: text\lsector_id: UUID FK\lgps_postgis: text?\lgps_string: text?\lcreated_at: timestamp\lupdated_at: timestamp\l}"];
+    label="{boulders|id: UUID PK\lname: text\ldisplay_name: text\lurl: text\lsector_id: UUID FK\lgps_postgis: text?\lgps_string: text?\linserted_at: timestamp\lupdated_at: timestamp\l}"];
   
   boulder_photos [style=filled, color="#E6F3FF", 
-    label="{boulder_photos|id: UUID PK\lboulder_id: UUID FK\lsource_url: text\lorder: int\lphoto_id: text\lstorage_url: text?\llines_data: JSONB?\lcreated_at: timestamp\lupdated_at: timestamp\l}"];
+    label="{boulder_photos|id: UUID PK\lboulder_id: UUID FK\lsource_url: text\lorder: int\lphoto_id: text\lstorage_url: text?\llines_data: JSONB?\linserted_at: timestamp\lupdated_at: timestamp\l}"];
   
   routes [style=filled, color="#E6F3FF", 
-    label="{routes|id: UUID PK\lboulder_id: UUID FK\lname: text\ldisplay_name: text\lurl: text\lgrade: text\lrating: float?\ldescription: text?\lline_data: JSONB?\lcreated_at: timestamp\lupdated_at: timestamp\l}"];
+    label="{routes|id: UUID PK\lboulder_id: UUID FK\lname: text\ldisplay_name: text\lurl: text\lgrade: text\lrating: float?\ldescription: text?\lline_data: JSONB?\linserted_at: timestamp\lupdated_at: timestamp\l}"];
   
   boulder_sector_mappings [style=filled, color="#E6F3FF", 
-    label="{boulder_sector_mappings|id: UUID PK\lboulder_url: text\lsector_name: text\lsector_id: UUID FK\lcreated_at: timestamp\lupdated_at: timestamp\l}"];
+    label="{boulder_sector_mappings|id: UUID PK\lboulder_url: text\lsector_name: text\lsector_id: UUID FK\linserted_at: timestamp\lupdated_at: timestamp\l}"];
   
   /* Account tables */
   users [style=filled, color="#FFECE6", 
-    label="{users|id: UUID PK\lfirst_name: text\llast_name: text\lemail: text\lhashed_password: text\lconfirmed_at: timestamp?\lrole: enum\lcreated_at: timestamp\lupdated_at: timestamp\l}"];
+    label="{users|id: UUID PK\lfirst_name: text\llast_name: text\lemail: text\lhashed_password: text\lconfirmed_at: timestamp?\lrole: enum\linserted_at: timestamp\lupdated_at: timestamp\l}"];
   
   /* Competition tables */
   competitions [style=filled, color="#FFF9E6", 
-    label="{competitions|id: UUID PK\lname: text\lcrag_id: UUID FK\ldisplay_name: text\lstart_date: datetime\lend_date: datetime\lstatus: enum\ldescription: text?\lvenue: text?\lcreated_at: timestamp\lupdated_at: timestamp\l}"];
+    label="{competitions|id: UUID PK\lname: text\lcrag_id: UUID FK\ldisplay_name: text\lstart_date: datetime\lend_date: datetime\lstatus: enum\ldescription: text?\lvenue: text?\linserted_at: timestamp\lupdated_at: timestamp\l}"];
   
   competition_categories [style=filled, color="#FFF9E6", 
-    label="{competition_categories|id: UUID PK\lcompetition_id: UUID FK\lcategory_type: enum\lname: text\ldescription: text?\ldisplay_order: int\lcreated_at: timestamp\lupdated_at: timestamp\l}"];
+    label="{competition_categories|id: UUID PK\lcompetition_id: UUID FK\lcategory_type: enum\lname: text\ldescription: text?\ldisplay_order: int\linserted_at: timestamp\lupdated_at: timestamp\l}"];
   
   teams [style=filled, color="#FFF9E6", 
-    label="{teams|id: UUID PK\lcompetition_id: UUID FK\lname: text\lcaptain_id: UUID FK\lcategory: text\lcreated_at: timestamp\lupdated_at: timestamp\l}"];
+    label="{teams|id: UUID PK\lcompetition_id: UUID FK\lname: text\lcaptain_id: UUID FK\lcategory: text\linserted_at: timestamp\lupdated_at: timestamp\l}"];
   
   participants [style=filled, color="#FFF9E6", 
-    label="{participants|id: UUID PK\lcompetition_id: UUID FK\luser_id: UUID FK\lfirst_name: text\llast_name: text\lemail: text\lteam_id: UUID FK?\lsolo_entry: boolean\lcreated_at: timestamp\l}"];
+    label="{participants|id: UUID PK\lcompetition_id: UUID FK\luser_id: UUID FK\lfirst_name: text\llast_name: text\lemail: text\lteam_id: UUID FK?\lis_solo: boolean\linserted_at: timestamp\l}"];
   
   ascents [style=filled, color="#FFF9E6", 
-    label="{ascents|id: UUID PK\lcompetition_id: UUID FK\lparticipant_id: UUID FK\lroute_id: UUID FK\lteam_id: UUID FK?\lcreated_at: timestamp\l}"];
+    label="{ascents|id: UUID PK\lcompetition_id: UUID FK\lparticipant_id: UUID FK\lroute_id: UUID FK\lteam_id: UUID FK?\linserted_at: timestamp\l}"];
   
   comp_vouchers [style=filled, color="#FFF9E6", 
-    label="{comp_vouchers|id: UUID PK\lemail: text\lcode: int\lcode_used_at: timestamp?\lcompetition_id: UUID FK\lparticipant_id: UUID FK?\lcreated_at: timestamp\lupdated_at: timestamp\l}"];
+    label="{comp_vouchers|id: UUID PK\lemail: text\lcode: int\lcode_used_at: timestamp?\lcompetition_id: UUID FK\lparticipant_id: UUID FK?\linserted_at: timestamp\lupdated_at: timestamp\l}"];
   
   competition_photos [style=filled, color="#FFF9E6", 
-    label="{competition_photos|id: UUID PK\lcompetition_id: UUID FK\luploader_id: UUID FK\lcloudinary_url: text?\ldescription: text?\lapproved: boolean\lfeatured: boolean\lcreated_at: timestamp\lupdated_at: timestamp\l}"];
+    label="{competition_photos|id: UUID PK\lcompetition_id: UUID FK\luploader_id: UUID FK\lcloudinary_url: text?\ldescription: text?\lapproved: boolean\lfeatured: boolean\linserted_at: timestamp\lupdated_at: timestamp\l}"];
   
   /* Scoring tables */
   base_points [style=filled, color="#E6FFE6", 
@@ -66,13 +66,13 @@ digraph G {
     label="{master_grade_bonus|id: UUID PK\lcompetition_id: UUID FK?\lbonus_factor: float\l}"];
   
   marathon_rankings [style=filled, color="#E6FFE6", 
-    label="{marathon_rankings|id: UUID PK\lcompetition_id: UUID FK\lteam_id: UUID FK\lteam_size: int\lbase_score: float\lvolume_bonus: float\lunique_ascent_bonus: float\lteam_ascent_bonus: float\lmaster_grade_bonus: float\ltotal_score: float\lnormalized_score: float\lrank: int\lcreated_at: timestamp\lupdated_at: timestamp\l}"];
+    label="{marathon_rankings|id: UUID PK\lcompetition_id: UUID FK\lteam_id: UUID FK\lteam_size: int\lbase_score: float\lvolume_bonus: float\lunique_ascent_bonus: float\lteam_ascent_bonus: float\lmaster_grade_bonus: float\ltotal_score: float\lnormalized_score: float\lrank: int\linserted_at: timestamp\lupdated_at: timestamp\l}"];
   
   marathon_detailed_results [style=filled, color="#E6FFE6", 
-    label="{marathon_detailed_results|id: UUID PK\lcompetition_id: UUID FK\lteam_id: UUID FK\lteam_name: text\lteam_size: int\lroutes: JSONB\ltotal_ascents: int\lvolume_bonus: float\lteam_completed_routes: int\lteam_unique_routes: int\lmaster_grades: JSONB\lmaster_grade_bonus: float\lbase_score: float\lteam_ascent_bonus: float\lunique_ascent_bonus: float\ltotal_score: float\lnormalized_score: float\lcreated_at: timestamp\lupdated_at: timestamp\l}"];
+    label="{marathon_detailed_results|id: UUID PK\lcompetition_id: UUID FK\lteam_id: UUID FK\lteam_name: text\lteam_size: int\lroutes: JSONB\ltotal_ascents: int\lvolume_bonus: float\lteam_completed_routes: int\lteam_unique_routes: int\lmaster_grades: JSONB\lmaster_grade_bonus: float\lbase_score: float\lteam_ascent_bonus: float\lunique_ascent_bonus: float\ltotal_score: float\lnormalized_score: float\linserted_at: timestamp\lupdated_at: timestamp\l}"];
   
   boulder_beasts_rankings [style=filled, color="#E6FFE6", 
-    label="{boulder_beasts_rankings|id: UUID PK\lcompetition_id: UUID FK\lparticipant_id: UUID FK\ltotal_score: float\ltop_5_routes: text[]?\ltop_5_routes_score: float\lrank: int\lcreated_at: timestamp\lupdated_at: timestamp\l}"];
+    label="{boulder_beasts_rankings|id: UUID PK\lcompetition_id: UUID FK\lparticipant_id: UUID FK\ltotal_score: float\ltop_5_routes: text[]?\ltop_5_routes_score: float\lrank: int\linserted_at: timestamp\lupdated_at: timestamp\l}"];
   
   /* Relationships */
   

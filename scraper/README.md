@@ -210,7 +210,7 @@ The scraper integrates deeply with the FastAPI backend and Celery task queue to 
        current_user: User = Depends(get_current_user)
    ):
        # Verify permissions
-       if current_user.role not in [UserRole.ADMIN, UserRole.MODERATOR]:
+       if current_user.role not in [UserRole.admin, UserRole.moderator]:
            raise HTTPException(status_code=403, detail="Not authorized to trigger scraping")
        
        # Delegate to Celery task
@@ -246,7 +246,7 @@ The scraper integrates deeply with the FastAPI backend and Celery task queue to 
            )
            
            # Mark as completed
-           update_task_status(task_id, "COMPLETED", result=result)
+           update_task_status(task_id, "completed", result=result)
            return result
            
        except Exception as e:
@@ -306,10 +306,10 @@ The system keeps track of all scraping tasks for monitoring and debugging:
        
        id: str = Field(primary_key=True)  # Celery task ID
        crag_name: str
-       status: str  # "PENDING", "PROCESSING", "COMPLETED", "FAILED"
+       status: str  # "PENDING", "PROCESSING", "completed", "FAILED"
        result: Optional[Dict] = Field(default=None, sa_column=Column(JSON))
        error: Optional[str] = None
-       created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+       inserted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
        updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
    ```
 

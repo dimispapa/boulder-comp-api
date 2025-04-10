@@ -158,12 +158,12 @@ class ScoreCalculator:
                 "ascent_id": str(ascent.id),
                 "participant_id": str(participant.id),
                 "participant_name":
-                f"{participant.first_name} {participant.last_name}",
+                f"{participant.user.first_name} {participant.user.last_name}",
                 "route_id": str(route.id),
                 "route_name": route.name,
                 "grade": route.grade,
-                "created_at": ascent.created_at,
-                "solo_entry": participant.solo_entry
+                "inserted_at": ascent.inserted_at,
+                "is_solo": participant.is_solo
             }
 
             # Add team info if present
@@ -189,7 +189,7 @@ class ScoreCalculator:
 
         return df
 
-    async def calculate_scores(self) -> None:
+    async def calculate_scores(self) -> Dict[str, List[Dict[str, Any]]]:
         """
         Calculate scores for the competition and store results in the database.
 
@@ -198,6 +198,10 @@ class ScoreCalculator:
         2. Prepare ascent data
         3. Calculate scores based on competition category
         4. Store results in the database
+
+        Returns:
+            Dictionary with two keys: "marathon" and "boulder_beasts",
+            each containing a list of rankings
         """
         try:
             # Get scoring parameters from config
@@ -208,6 +212,9 @@ class ScoreCalculator:
 
             # Get category name from competition
             categories = self.competition.categories
+
+            # Dictionary to return the results
+            rankings = {"marathon": [], "boulder_beasts": []}
 
             logger.info(f"Calculating scores for competition {self.comp_id} "
                         f"with categories {categories}")
@@ -223,6 +230,8 @@ class ScoreCalculator:
                                         team_scores,
                                         detailed_calculations,
                                         is_marathon=True)
+                    # Add to return dictionary
+                    rankings["marathon"] = team_scores
                 elif category_name.lower() == "boulder beasts":
                     participant_scores = \
                         await self._calculate_boulder_beasts_scores()
@@ -232,6 +241,8 @@ class ScoreCalculator:
                                         participant_scores,
                                         None,
                                         is_marathon=False)
+                    # Add to return dictionary
+                    rankings["boulder_beasts"] = participant_scores
                 else:
                     logger.warning(
                         f"Unsupported competition category: {category_name}")
@@ -240,6 +251,8 @@ class ScoreCalculator:
 
             logger.info(
                 f"Score calculation completed for competition {self.comp_id}")
+
+            return rankings
 
         except Exception as e:
             logger.error(f"Error calculating scores: {str(e)}", exc_info=True)
@@ -357,12 +370,12 @@ class ScoreCalculator:
         Returns:
             Tuple of (team scores list, detailed calculations list)
         """
-        logger.info("Starting Marathon score calculation with "
-                    f"{len(self.ascents_df)} ascents")
 
         # Filter out solo entries
-        team_ascents_df = self.ascents_df[~self.ascents_df["solo_entry"]].copy(
-        )
+        team_ascents_df = self.ascents_df[~self.ascents_df["is_solo"]].copy()
+
+        logger.info("Starting Marathon score calculation with "
+                    f"{len(team_ascents_df)} ascents")
 
         # 1. Calculate unique ascents (routes climbed by only one person)
         self.unique_routes = await self._get_unique_ascents(team_ascents_df)
@@ -498,7 +511,8 @@ class ScoreCalculator:
                 "team_ascent_bonus": team_ascent_bonus,
                 "unique_ascent_bonus": unique_ascent_bonus,
                 "total_score": total_score,
-                "normalized_score": normalized_score
+                "normalized_score": normalized_score,
+                "ranking": None  # Add ranking field, to be set after sorting
             }
 
             team_scores.append(team_score)
@@ -510,6 +524,10 @@ class ScoreCalculator:
                                reverse=True)
         for i, team in enumerate(sorted_scores):
             team["ranking"] = i + 1
+            # Find and update the corresponding detailed calculation ranking
+            for calc in detailed_calculations:
+                if calc["team_id"] == team["team_id"]:
+                    calc["ranking"] = i + 1
 
         logger.info("Completed Marathon score calculation for "
                     f"{len(team_scores)} teams")
@@ -526,33 +544,46 @@ class ScoreCalculator:
         logger.info(f"Starting Boulder Beasts score calculation with "
                     f"{len(ascents_df)} ascents")
 
-        # Get participants from the DataFrame
-        participants = ascents_df[["participant_id",
-                                   "participant_name"]].drop_duplicates()
+        # Get ALL participants from the competition
+        all_participants = []
+        for participant in self.competition.participants:
+            all_participants.append({
+                "participant_id": str(participant.id),
+                "participant_name":
+                f"{participant.user.first_name} {participant.user.last_name}",
+                "is_solo": participant.is_solo
+            })
 
         # Create a list to store participant scores
         participant_scores = []
 
         # Iterate through all participants
-        for _, participant_row in participants.iterrows():
-            participant_id = participant_row["participant_id"]
-            participant_name = participant_row["participant_name"]
+        for participant in all_participants:
+            participant_id = participant["participant_id"]
+            participant_name = participant["participant_name"]
 
             # Filter ascents for this participant
             participant_df = ascents_df[ascents_df["participant_id"] ==
                                         participant_id]
 
-            # Sort routes by base points (descending) and take top 5
-            top_5_routes = participant_df.sort_values("base_points",
-                                                      ascending=False).head(5)
-            # Get list of top 5 route names + grades
-            top_5_routes = (top_5_routes["route_name"] + " - " +
-                            top_5_routes["grade"]).tolist()
-            # Sum the base points of these top 5 routes
-            top_5_routes_score = top_5_routes["base_points"].sum()
+            if len(participant_df) > 0:
+                # Participant has ascents
+                # Sort routes by base points (descending) and take top 5
+                top_5_routes_df = participant_df.sort_values(
+                    "base_points", ascending=False).head(5)
+                # Sum the base points of these top 5 routes
+                top_5_routes_score = top_5_routes_df["base_points"].sum()
+                # Get list of top 5 route names + grades
+                top_5_routes = (top_5_routes_df["route_name"] + " - " +
+                                top_5_routes_df["grade"]).tolist()
 
-            # Calculate total points
-            total_score = participant_df["base_points"].sum()
+                # Calculate total points
+                total_score = participant_df["base_points"].sum()
+            else:
+                # Participant has no ascents
+                top_5_routes = []
+                top_5_routes_score = 0
+                total_score = 0
 
             # Create participant score entry
             participant_score = {

@@ -2,6 +2,7 @@
 Utility functions for general purposes.
 """
 import re
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Union
@@ -163,3 +164,36 @@ def convert_csv_to_json():
                 logger.info(f"Converted {csv_path} to {json_path}")
             except Exception as e:
                 logger.error(f"Error converting {csv_path} to JSON: {str(e)}")
+
+
+def load_sql_file(filename: str) -> str:
+    """Load SQL files from the sql directory.
+    Works in both local and Docker environments.
+
+    Args:
+        filename (str): The name of the SQL file to load
+
+    Returns:
+        str: The contents of the SQL file
+    """
+    # Try different possible locations
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    possible_paths = [
+        # Local dev path
+        os.path.join(base_dir, "database", "sql", filename),
+        # Docker container path
+        os.path.join("/app", "database", "sql", filename),
+        # Fallback path
+        os.path.join(base_dir, "sql", filename)
+    ]
+
+    # Try each path until one works
+    for sql_path in possible_paths:
+        if os.path.exists(sql_path):
+            with open(sql_path, "r") as f:
+                return f.read()
+
+    # If no paths worked, raise a more helpful error
+    raise FileNotFoundError(
+        f"Could not find SQL file '{filename}' in any of these locations:"
+        f" {possible_paths}")

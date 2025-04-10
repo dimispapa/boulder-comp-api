@@ -105,7 +105,7 @@ class MarathonRanking(SQLModel, table=True):
     total_score: float
     normalized_score: float
     rank: int
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    inserted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # This would normally have a relationship,
@@ -135,7 +135,8 @@ class MarathonDetailedResults(SQLModel, table=True):
     unique_ascent_bonus: float
     total_score: float
     normalized_score: float
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    rank: int
+    inserted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Properties for JSON serialization/deserialization
@@ -180,5 +181,5 @@ class BoulderBeastsRanking(SQLModel, table=True):
                                               sa_type=ARRAY(String))
     top_5_routes_score: float
     rank: int
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    inserted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

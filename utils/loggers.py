@@ -1,6 +1,7 @@
 import sys
 import logging
 import os
+from logging.handlers import TimedRotatingFileHandler
 
 # Only enable debug logging if DEBUG environment variable is set to true
 DEBUG_MODE = os.environ.get('DEBUG', 'false').lower() == 'true'
@@ -26,9 +27,18 @@ def setup_logging():
     root_logger.addHandler(handler)
     root_logger.setLevel(LOG_LEVEL)
 
-    # Configure a file handler for the root logger
+    # Configure a rotating file handler that creates a new log file each day
     os.makedirs('logs', exist_ok=True)
-    file_handler = logging.FileHandler('logs/app.log')
+    log_file_path = 'logs/app.log'
+
+    # Use TimedRotatingFileHandler instead of FileHandler
+    file_handler = TimedRotatingFileHandler(
+        log_file_path,
+        when='midnight',     # Rotate at midnight each day
+        interval=1,          # One day per file
+        backupCount=7,       # Keep logs for last 7 days
+        encoding='utf-8'
+    )
     file_handler.setLevel(logging.DEBUG)  # Set to DEBUG to capture everything
     file_handler.setFormatter(formatter)
     root_logger.addHandler(file_handler)

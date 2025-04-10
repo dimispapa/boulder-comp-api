@@ -1,34 +1,40 @@
 """
 SQLModel models related to competitions, teams, participants, and ascents.
 """
-from sqlmodel import SQLModel, Field, Relationship
+from sqlmodel import SQLModel, Field, Relationship, UniqueConstraint
+from sqlalchemy import Column, Computed
 from typing import Optional, List, TYPE_CHECKING
 from datetime import datetime, UTC
 from uuid import UUID, uuid4
 from enum import Enum
-import sqlalchemy.schema
+from sqlalchemy import Boolean, event, DDL
+import os
 
 from database.models.scoring import (BasePoints, VolumeBonus,
                                      UniqueAscentBonus, TeamAscentBonus,
                                      MasterGradeBonus)
+from utils.general_utils import load_sql_file
+
+MIN_TEAM_SIZE = int(os.environ.get("MIN_TEAM_SIZE", 2))
+MAX_TEAM_SIZE = int(os.environ.get("MAX_TEAM_SIZE", 4))
 
 # Type hints for forward references
 if TYPE_CHECKING:
     from database.models.crags import Crag, Route
-    from database.models.accounts import User, CompVoucher
+    from database.models.accounts import User
 
 
 class CompetitionStatus(str, Enum):
     """Competition status enum."""
-    UPCOMING = "upcoming"
-    ONGOING = "ongoing"
-    COMPLETED = "completed"
+    upcoming = "upcoming"
+    ongoing = "ongoing"
+    completed = "completed"
 
 
 class CategoryType(str, Enum):
     """Competition category type enum."""
-    MARATHON = "marathon"
-    BOULDER_BEASTS = "boulder_beasts"
+    marathon = "marathon"
+    boulder_beasts = "boulder_beasts"
 
 
 class Competition(SQLModel, table=True):
@@ -37,14 +43,14 @@ class Competition(SQLModel, table=True):
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     name: str = Field(unique=True)
-    crag_id: UUID = Field(foreign_key="crags.id")
     display_name: str = Field(unique=True)
+    crag_id: UUID = Field(foreign_key="crags.id")
     start_date: datetime
     end_date: datetime
-    status: str = Field(default=CompetitionStatus.ONGOING.value)
+    status: str = Field(default=CompetitionStatus.ongoing.value)
     description: Optional[str] = None
     venue: Optional[str] = None
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    inserted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Relationships
@@ -76,10 +82,10 @@ class CompetitionCategory(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     competition_id: UUID = Field(foreign_key="competitions.id")
     category_type: str = Field(CategoryType)
-    name: str = Field(...)
+    name: str = Field(unique=True)
     description: Optional[str] = Field(default=None)
-    display_order: int = Field(default=0)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    display_order: int = 0
+    inserted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Relationships
@@ -89,25 +95,32 @@ class CompetitionCategory(SQLModel, table=True):
 class Team(SQLModel, table=True):
     """Team model for team-based competitions."""
     __tablename__ = "teams"
+    __table_args__ = (UniqueConstraint(
+        'name', 'competition_id', name='unique_team_name_per_competition'), )
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    competition_id: UUID = Field(foreign_key="competitions.id")
-    name: str
-    # We can't have a direct relationship to the captain as it would
-    # create a circular dependency, so we'll handle it through named
-    # constraints
-    captain_id: UUID = Field(
-        sa_column_kwargs={
-            "foreign_keys": [
-                sqlalchemy.schema.ForeignKey("participants.id",
-                                             name="fk_team_captain_id")
-            ]
-        })
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    name: str = Field(index=True)
+    team_code: str = Field(unique=True)
+    # Spots available are set based on MAX_TEAM_SIZE env var
+    spots: int = Field(default=MAX_TEAM_SIZE - 1, ge=0, lt=MAX_TEAM_SIZE)
+    is_full: bool = False
+    # Computed field: team is valid when it has at least 2 members
+    # (MAX_TEAM_SIZE - MIN_TEAM_SIZE)
+    is_valid: bool = Field(sa_column=Column(
+        Boolean,
+        Computed(f"spots <= {MAX_TEAM_SIZE - MIN_TEAM_SIZE}", persisted=True)))
+    captain_id: UUID = Field(foreign_key="users.id",
+                             ondelete="SET NULL",
+                             nullable=True)
+    competition_id: UUID = Field(foreign_key="competitions.id",
+                                 ondelete="SET NULL",
+                                 nullable=True)
+
+    inserted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Relationships
-    competition: Competition = Relationship(back_populates="teams")
+    competition: "Competition" = Relationship(back_populates="teams")
     participants: List["Participant"] = Relationship(back_populates="team")
     ascents: List["Ascent"] = Relationship(back_populates="team")
 
@@ -117,20 +130,30 @@ class Participant(SQLModel, table=True):
     __tablename__ = "participants"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    competition_id: UUID = Field(foreign_key="competitions.id")
-    user_id: UUID = Field(foreign_key="users.id")
-    first_name: str
-    last_name: str
-    email: str
-    team_id: Optional[UUID] = Field(default=None, foreign_key="teams.id")
-    solo_entry: bool = False
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    competition_id: UUID = Field(foreign_key="competitions.id",
+                                 ondelete="CASCADE")
+    user_id: Optional[UUID] = Field(foreign_key="users.id",
+                                    ondelete="SET NULL",
+                                    nullable=True)
+    team_id: Optional[UUID] = Field(foreign_key="teams.id",
+                                    ondelete="SET NULL",
+                                    nullable=True)
+    # Denormalized field to store team validity
+    team_is_valid: Optional[bool] = Field(default=None)
+    # Computed field: participant is solo when they have no team
+    # or their team is invalid
+    is_solo: bool = Field(sa_column=Column(
+        Boolean,
+        Computed("team_id IS NULL OR team_is_valid IS NOT TRUE",
+                 persisted=True)))
+    inserted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Relationships
     competition: Competition = Relationship(back_populates="participants")
     team: Optional[Team] = Relationship(back_populates="participants")
     ascents: List["Ascent"] = Relationship(back_populates="participant")
-    user: "User" = Relationship(back_populates="participants")
+    user: Optional["User"] = Relationship(back_populates="participants")
     comp_voucher: Optional["CompVoucher"] = Relationship(
         back_populates="participant",
         sa_relationship_kwargs={"uselist": False})
@@ -145,7 +168,7 @@ class Ascent(SQLModel, table=True):
     participant_id: UUID = Field(foreign_key="participants.id")
     route_id: UUID = Field(foreign_key="routes.id")
     team_id: Optional[UUID] = Field(default=None, foreign_key="teams.id")
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    inserted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Relationships
     participant: Participant = Relationship(back_populates="ascents")
@@ -156,3 +179,45 @@ class Ascent(SQLModel, table=True):
     class Config:
         """SQLModel config."""
         arbitrary_types_allowed = True
+
+
+class CompVoucher(SQLModel, table=True):
+    """Competition voucher model."""
+    __tablename__ = "comp_vouchers"
+    __table_args__ = (UniqueConstraint(
+        'email',
+        'competition_id',
+        name='unique_comp_voucher_email_per_competition'), )
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    email: str
+    code: int = Field(unique=True)
+    code_used_at: Optional[datetime] = None
+    competition_id: UUID = Field(foreign_key="competitions.id",
+                                 ondelete="CASCADE")
+    participant_id: Optional[UUID] = Field(default=None,
+                                           foreign_key="participants.id",
+                                           ondelete="CASCADE")
+    inserted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    # Relationships
+    competition: "Competition" = Relationship(back_populates="comp_vouchers")
+    participant: Optional["Participant"] = Relationship(
+        back_populates="comp_voucher")
+
+
+# Trigger functions
+# 1. Trigger to update participants when a team's validity changes
+update_participants_team_validity_trigger = DDL(
+    load_sql_file("update_participants_team_validity.sql"))
+
+# 2. Trigger to set a participant's team_is_valid when they join a team
+set_participant_team_validity_trigger = DDL(
+    load_sql_file("set_participant_team_validity.sql"))
+
+# Bind triggers to their respective tables
+event.listen(Team.__table__, 'after_create',
+             update_participants_team_validity_trigger)
+event.listen(Participant.__table__, 'after_create',
+             set_participant_team_validity_trigger)

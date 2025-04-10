@@ -6,7 +6,10 @@ Run this script once to initialize the database schema.
 import argparse
 # Import all models to ensure they are registered with SQLModel
 from database.models import *  # noqa: F403, F401
-from database.management.base import create_db_and_tables
+from database.management.base import (
+    create_db_and_tables,
+    init_mock_competition_data,
+)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -17,4 +20,7 @@ if __name__ == "__main__":
                         help="Create mock competition data")
     args = parser.parse_args()
 
-    create_db_and_tables(mock_competition=args.mock_comp)
+    create_db_and_tables()
+
+    if args.mock_comp:
+        init_mock_competition_data()

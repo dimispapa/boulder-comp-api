@@ -378,7 +378,7 @@ Common errors without `--build`:
 | `name`        | text         | Unique crag name                     |
 | `display_name`| text         | Formatted display name               |
 | `description` | text / null  | Optional crag description            |
-| `created_at`  | timestamp    | When added                           |
+| `inserted_at`  | timestamp    | When added                           |
 | `updated_at`  | timestamp    | Last updated                         |
 
 #### `sectors`
@@ -390,7 +390,7 @@ Common errors without `--build`:
 | `display_name`| text         | Formatted display name               |
 | `crag_id`     | FK → crags.id| Reference to parent crag             |
 | `description` | text / null  | Optional sector description          |
-| `created_at`  | timestamp    | When added                           |
+| `inserted_at`  | timestamp    | When added                           |
 | `updated_at`  | timestamp    | Last updated                         |
 
 #### `boulders`
@@ -404,7 +404,7 @@ Common errors without `--build`:
 | `sector_id`   | FK → sectors.id| Reference to sector                  |
 | `gps_postgis` | text / null    | PostGIS formatted coordinates        |
 | `gps_string`  | text / null    | Raw coordinates string               |
-| `created_at`  | timestamp      | When added                           |
+| `inserted_at`  | timestamp      | When added                           |
 | `updated_at`  | timestamp      | Last updated                         |
 
 #### `boulder_photos`
@@ -418,7 +418,7 @@ Common errors without `--build`:
 | `photo_id`   | text         | Photo identifier                           |
 | `storage_url`| text / null  | URL in Cloudinary after upload             |
 | `lines_data` | JSONB / null | Optional route line data                   |
-| `created_at` | timestamp    | When added                                 |
+| `inserted_at` | timestamp    | When added                                 |
 | `updated_at` | timestamp    | Last updated                               |
 
 #### `routes`
@@ -434,7 +434,7 @@ Common errors without `--build`:
 | `rating`     | float / null | Route rating                             |
 | `description`| text / null  | Route description                        |
 | `line_data`  | JSONB / null | Route line data                          |
-| `created_at` | timestamp    | When added                               |
+| `inserted_at` | timestamp    | When added                               |
 | `updated_at` | timestamp    | Last updated                             |
 
 #### `boulder_sector_mappings`
@@ -445,7 +445,7 @@ Common errors without `--build`:
 | `boulder_url` | text           | URL of boulder on 27crags           |
 | `sector_name` | text           | Name of the sector                  |
 | `sector_id`   | FK → sectors.id| Reference to sector                 |
-| `created_at`  | timestamp      | When added                          |
+| `inserted_at`  | timestamp      | When added                          |
 | `updated_at`  | timestamp      | Last updated                        |
 
 ---
@@ -465,7 +465,7 @@ Common errors without `--build`:
 | `status`      | enum           | Competition status: "upcoming", "ongoing", or "completed"   |
 | `description` | text / null    | Details about the competition                               |
 | `venue`       | text / null    | Location/venue of the event                                 |
-| `created_at`  | timestamp      | When added                                                  |
+| `inserted_at`  | timestamp      | When added                                                  |
 | `updated_at`  | timestamp      | Last updated                                                |
 
 #### `competition_categories`
@@ -478,7 +478,7 @@ Common errors without `--build`:
 | `name`          | text                | Category name                                |
 | `description`   | text / null         | Category description                         |
 | `display_order` | int                 | Order for display in UI                      |
-| `created_at`    | timestamp           | When added                                   |
+| `inserted_at`    | timestamp           | When added                                   |
 | `updated_at`    | timestamp           | Last updated                                 |
 
 #### `teams`
@@ -490,7 +490,7 @@ Common errors without `--build`:
 | `name`          | text                | Team name                                    |
 | `captain_id`    | FK → participants.id| Team captain (uses named FK constraint)      |
 | `category`      | text                | Competition category ("marathon")            |
-| `created_at`    | timestamp           | When added                                   |
+| `inserted_at`    | timestamp           | When added                                   |
 | `updated_at`    | timestamp           | Last updated                                 |
 
 #### `participants`
@@ -504,8 +504,8 @@ Common errors without `--build`:
 | `last_name`     | text             | Participant's last name                      |
 | `email`         | text             | Participant's email                          |
 | `team_id`       | FK → teams.id / null | Team the participant belongs to (null for solo) |
-| `solo_entry`    | boolean          | Whether this is a solo participant          |
-| `created_at`    | timestamp        | When added                                   |
+| `is_solo`    | boolean          | Whether this is a solo participant          |
+| `inserted_at`    | timestamp        | When added                                   |
 
 #### `ascents`
 
@@ -516,7 +516,7 @@ Common errors without `--build`:
 | `participant_id`| FK → participants.id| Participant who completed the ascent     |
 | `route_id`      | FK → routes.id      | Route that was climbed                   |
 | `team_id`       | FK → teams.id / null| Team of the participant (if applicable)  |
-| `created_at`    | timestamp           | When the ascent was recorded             |
+| `inserted_at`    | timestamp           | When the ascent was recorded             |
 
 #### `users`
 
@@ -529,7 +529,7 @@ Common errors without `--build`:
 | `hashed_password`| text             | Encrypted password                        |
 | `confirmed_at`   | timestamp / null | When email was confirmed                  |
 | `role`           | enum             | "user", "admin", or "moderator"           |
-| `created_at`     | timestamp        | When added                                |
+| `inserted_at`     | timestamp        | When added                                |
 | `updated_at`     | timestamp        | Last updated                              |
 
 #### `comp_vouchers`
@@ -542,7 +542,7 @@ Common errors without `--build`:
 | `code_used_at`  | timestamp / null    | When the voucher was used                 |
 | `competition_id`| FK → competitions.id| Competition this voucher is for           |
 | `participant_id`| FK → participants.id / null | Participant who used the voucher   |
-| `created_at`    | timestamp           | When added                                |
+| `inserted_at`    | timestamp           | When added                                |
 | `updated_at`    | timestamp           | Last updated                              |
 
 ### 📊 Scoring Tables
@@ -607,7 +607,7 @@ Common errors without `--build`:
 | `total_score`       | float               | Total unadjusted score                 |
 | `normalized_score`  | float               | Score normalized for team size         |
 | `rank`              | int                 | Final ranking position                 |
-| `created_at`        | timestamp           | When calculated                        |
+| `inserted_at`        | timestamp           | When calculated                        |
 | `updated_at`        | timestamp           | Last updated                           |
 
 #### `marathon_detailed_results`
@@ -631,7 +631,7 @@ Common errors without `--build`:
 | `unique_ascent_bonus`| float               | Bonus for unique routes                |
 | `total_score`        | float               | Total unadjusted score                 |
 | `normalized_score`   | float               | Score normalized for team size         |
-| `created_at`         | timestamp           | When calculated                        |
+| `inserted_at`         | timestamp           | When calculated                        |
 | `updated_at`         | timestamp           | Last updated                           |
 
 #### `boulder_beasts_rankings`
@@ -645,7 +645,7 @@ Common errors without `--build`:
 | `top_5_routes`  | text[] / null          | Array of top 5 route names             |
 | `top_5_routes_score` | float            | Score from top 5 routes                |
 | `rank`          | int                    | Final ranking position                 |
-| `created_at`    | timestamp              | When calculated                        |
+| `inserted_at`    | timestamp              | When calculated                        |
 | `updated_at`    | timestamp              | Last updated                           |
 
 #### `competition_photos`
@@ -659,7 +659,7 @@ Common errors without `--build`:
 | `description`  | text / null          | Optional photo description             |
 | `approved`     | boolean              | Whether the photo is approved          |
 | `featured`     | boolean              | Whether the photo is featured          |
-| `created_at`   | timestamp            | When uploaded                          |
+| `inserted_at`   | timestamp            | When uploaded                          |
 | `updated_at`   | timestamp            | Last updated                           |
 
 ### 🔄 Entity Relationship Diagram

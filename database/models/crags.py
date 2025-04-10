@@ -22,7 +22,7 @@ class Crag(SQLModel, table=True):
     name: str = Field(unique=True)
     display_name: str = Field(unique=True)
     description: Optional[str] = None
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    inserted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Relationships
@@ -39,7 +39,7 @@ class Sector(SQLModel, table=True):
     display_name: str = Field(unique=True)
     crag_id: UUID = Field(foreign_key="crags.id")
     description: Optional[str] = None
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    inserted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Relationships
@@ -60,7 +60,7 @@ class Boulder(SQLModel, table=True):
     url: str = Field(unique=True)
     gps_postgis: Optional[str] = None  # PostGIS formatted point as string
     gps_string: Optional[str] = None  # Raw GPS coordinates
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    inserted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Relationships
@@ -82,7 +82,7 @@ class Route(SQLModel, table=True):
     rating: Optional[float] = None
     description: Optional[str] = None
     line_data: Optional[str] = Field(default=None, sa_type=JSONB)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    inserted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Relationships
@@ -114,7 +114,7 @@ class BoulderSectorMapping(SQLModel, table=True):
     boulder_url: str = Field(unique=True)
     sector_name: str
     sector_id: UUID = Field(foreign_key="sectors.id")
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    inserted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Relationships

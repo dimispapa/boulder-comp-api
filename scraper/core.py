@@ -390,7 +390,7 @@ class CragScraper:
                         boulder_url = normalize_url(boulder_url)
                         # Extract boulder data
                         boulder = await self._extract_boulder_data(
-                            boulder_element, async_session)
+                            boulder_element, boulder_url, async_session)
                         if boulder:  # Only append valid boulders
                             boulders.append(boulder)
                         else:
@@ -444,7 +444,7 @@ class CragScraper:
                 return {"success": False, "skipped_boulders": skipped_boulders}
 
     async def _extract_boulder_data(
-            self, boulder_element: BeautifulSoup,
+            self, boulder_element: BeautifulSoup, boulder_url: str,
             async_session: aiohttp.ClientSession) -> Optional[Boulder]:
         """
         Extract data from a boulder element.
@@ -452,28 +452,20 @@ class CragScraper:
         Args:
             boulder_element (BeautifulSoup): HTML element containing boulder
             data
-            session (aiohttp.ClientSession): Active aiohttp session
+            boulder_url (str): URL of the boulder
+            async_session (aiohttp.ClientSession): Active aiohttp session
 
         Returns:
             Optional[Boulder]: Boulder object if successful, None otherwise
         """
         try:
-            # Extract boulder URL from anchor element
-            boulder_url = urljoin(self.domain, boulder_element['href'])
-            if not boulder_url:
-                logger.error(f"No boulder link found for {boulder_element}")
-                return None
-
             # Get the boulder name and boulder url name
-            boulder_display_name = boulder_element.find('div',
-                                                        attrs={
-                                                            'class': 'name'
-                                                        }).text.strip()
+            boulder_display_name = boulder_element.find(
+                'div', class_='name').text.strip()
             boulder_name = format_name(boulder_display_name)
-            boulder_url_name = boulder_element['href'].split('/')[-1]
+            boulder_url_name = boulder_url.split('/')[-1]
             # Get the boulder page
             boulder_page = await self.get_html(boulder_url, async_session)
-
             # Get the GPS lat, lon string
             gps_string = boulder_page.find(
                 'a', class_=['sector-property',

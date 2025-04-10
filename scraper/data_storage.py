@@ -92,14 +92,10 @@ def store_crag_data(crag: ScraperCrag, session: Session) -> dict:
                 logger.info(
                     f"Processing boulder {i}/{total_boulders}: {boulder.name}")
 
-            # Format name from the original display name
-            display_name = boulder.name
-            name = format_name(display_name)
-
             # Create or update boulder
             new_boulder = Boulder(sector_id=sector_id,
-                                  name=name,
-                                  display_name=display_name,
+                                  name=boulder.name,
+                                  display_name=boulder.display_name,
                                   url=boulder.url,
                                   gps_postgis=boulder.gps_postgis,
                                   gps_string=boulder.gps_string)

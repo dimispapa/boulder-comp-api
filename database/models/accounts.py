@@ -6,13 +6,13 @@ from uuid import UUID, uuid4
 from datetime import UTC
 
 if TYPE_CHECKING:
-    from database.models.competitions import Participant, Competition
+    from database.models.competitions import Participant
 
 
 class UserRole(str, Enum):
-    USER = "user"
-    ADMIN = "admin"
-    MODERATOR = "moderator"
+    user = "user"
+    admin = "admin"
+    moderator = "moderator"
 
 
 # Base User model used for database table definition - NO password fields
@@ -22,31 +22,28 @@ class User(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     first_name: str
     last_name: str
-    email: str
+    email: str = Field(unique=True)
     hashed_password: str
     confirmed_at: Optional[datetime] = None
-    role: UserRole = Field(default=UserRole.USER)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    role: UserRole = Field(default=UserRole.user)
+    inserted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Relationships
     participants: List["Participant"] = Relationship(back_populates="user")
+    otps: List["UserOtp"] = Relationship(back_populates="user")
 
 
-class CompVoucher(SQLModel, table=True):
-    __tablename__ = "comp_vouchers"
+class UserOtp(SQLModel, table=True):
+    __tablename__ = "user_otps"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    email: str
-    code: int
-    code_used_at: Optional[datetime] = None
-    competition_id: UUID = Field(foreign_key="competitions.id")
-    participant_id: Optional[UUID] = Field(default=None,
-                                           foreign_key="participants.id")
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    hashed_code: bytes
+    context: str = Field(index=True)
+    sent_to: str
+    user_id: UUID = Field(foreign_key="users.id", index=True)
+    inserted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Relationships
-    competition: "Competition" = Relationship(back_populates="comp_vouchers")
-    participant: Optional["Participant"] = Relationship(
-        back_populates="comp_voucher")
+    user: "User" = Relationship(back_populates="otps")

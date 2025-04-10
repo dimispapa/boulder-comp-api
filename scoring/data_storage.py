@@ -9,6 +9,24 @@ from database.models.scoring import (MarathonRanking, MarathonDetailedResults,
 from utils.loggers import logger
 
 
+def convert_to_python_type(value):
+    """Convert NumPy types to native Python types."""
+    if str(type(value)).startswith("<class 'numpy"):
+        # Convert numpy numeric types to their Python equivalents
+        return float(value) if 'float' in str(type(value)) else int(value)
+    return value
+
+
+def convert_nested_types(obj):
+    """Recursively convert NumPy types in nested structures to Python types."""
+    if isinstance(obj, dict):
+        return {k: convert_nested_types(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_nested_types(item) for item in obj]
+    else:
+        return convert_to_python_type(obj)
+
+
 async def store_results(session: Session,
                         comp_id: str,
                         scores: List[Dict[str, Any]],
@@ -44,15 +62,26 @@ async def store_results(session: Session,
                     ranking_model = MarathonRanking(
                         competition_id=uuid.UUID(comp_id),
                         team_id=uuid.UUID(score["team_id"]),
-                        team_size=score["team_size"],
-                        base_score=score["base_score"],
-                        volume_bonus=score["volume_bonus"],
-                        unique_ascent_bonus=score["unique_ascent_bonus"],
-                        team_ascent_bonus=score["team_ascent_bonus"],
-                        master_grade_bonus=score["master_grade_bonus"],
-                        total_score=score["total_score"],
-                        normalized_score=score["normalized_score"],
-                        rank=score["ranking"])
+                        team_size=int(
+                            convert_to_python_type(score["team_size"])),
+                        base_score=float(
+                            convert_to_python_type(score["base_score"])),
+                        volume_bonus=float(
+                            convert_to_python_type(score["volume_bonus"])),
+                        unique_ascent_bonus=float(
+                            convert_to_python_type(
+                                score["unique_ascent_bonus"])),
+                        team_ascent_bonus=float(
+                            convert_to_python_type(
+                                score["team_ascent_bonus"])),
+                        master_grade_bonus=float(
+                            convert_to_python_type(
+                                score["master_grade_bonus"])),
+                        total_score=float(
+                            convert_to_python_type(score["total_score"])),
+                        normalized_score=float(
+                            convert_to_python_type(score["normalized_score"])),
+                        rank=int(convert_to_python_type(score["ranking"])))
 
                     # Store in database
                     create_or_update_marathon_ranking(session, ranking_model)
@@ -71,28 +100,59 @@ async def store_results(session: Session,
                             "Creating MarathonDetailedResults for team "
                             f"{calculation['team_id']}")
 
+                        # Count team_completed_routes and team_unique_routes
+                        # since they should be integers not arrays
+                        team_completed_routes_count = len(
+                            calculation["team_completed_routes"])
+                        team_unique_routes_count = len(
+                            calculation["team_unique_routes"])
+
+                        # Convert routes and master_grades to JSONB
+                        routes_json = convert_nested_types(
+                            calculation["routes"])
+                        master_grades_json = convert_nested_types(
+                            calculation["master_grades"])
+
                         # Convert data to proper types for database storage
                         detailed_calc_model = MarathonDetailedResults(
                             competition_id=uuid.UUID(comp_id),
                             team_id=uuid.UUID(calculation["team_id"]),
                             team_name=calculation["team_name"],
-                            team_size=calculation["team_size"],
-                            routes=calculation["routes"],
-                            total_ascents=calculation["total_ascents"],
-                            volume_bonus=calculation["volume_bonus"],
-                            team_completed_routes=calculation[
-                                "team_completed_routes"],
-                            team_unique_routes=calculation[
-                                "team_unique_routes"],
-                            master_grades=calculation["master_grades"],
-                            master_grade_bonus=calculation[
-                                "master_grade_bonus"],
-                            base_score=calculation["base_score"],
-                            team_ascent_bonus=calculation["team_ascent_bonus"],
-                            unique_ascent_bonus=calculation[
-                                "unique_ascent_bonus"],
-                            total_score=calculation["total_score"],
-                            normalized_score=calculation["normalized_score"])
+                            team_size=int(
+                                convert_to_python_type(
+                                    calculation["team_size"])),
+                            routes=routes_json,
+                            total_ascents=int(
+                                convert_to_python_type(
+                                    calculation["total_ascents"])),
+                            volume_bonus=float(
+                                convert_to_python_type(
+                                    calculation["volume_bonus"])),
+                            # Store the count of completed routes, not the list
+                            team_completed_routes=team_completed_routes_count,
+                            # Store the count of unique routes, not the list
+                            team_unique_routes=team_unique_routes_count,
+                            master_grades=master_grades_json,
+                            master_grade_bonus=float(
+                                convert_to_python_type(
+                                    calculation["master_grade_bonus"])),
+                            base_score=float(
+                                convert_to_python_type(
+                                    calculation["base_score"])),
+                            team_ascent_bonus=float(
+                                convert_to_python_type(
+                                    calculation["team_ascent_bonus"])),
+                            unique_ascent_bonus=float(
+                                convert_to_python_type(
+                                    calculation["unique_ascent_bonus"])),
+                            total_score=float(
+                                convert_to_python_type(
+                                    calculation["total_score"])),
+                            normalized_score=float(
+                                convert_to_python_type(
+                                    calculation["normalized_score"])),
+                            rank=int(convert_to_python_type(
+                                calculation["ranking"])))
 
                         # Store in database
                         create_or_update_marathon_detailed_results(
@@ -116,13 +176,21 @@ async def store_results(session: Session,
                         f"(rank {score['ranking']}) "
                         f"with score {score['total_score']}")
 
+                    # Convert top_5_routes to a list of strings if it exists
+                    top_5_routes = score.get("top_5_routes", [])
+                    if top_5_routes:
+                        top_5_routes = [str(route) for route in top_5_routes]
+
                     ranking_model = BoulderBeastsRanking(
                         competition_id=uuid.UUID(comp_id),
                         participant_id=uuid.UUID(score["participant_id"]),
-                        total_score=score["total_score"],
-                        top_5_routes=score["top_5_routes"],
-                        top_5_routes_score=score["top_5_routes_score"],
-                        rank=score["ranking"])
+                        total_score=float(
+                            convert_to_python_type(score["total_score"])),
+                        top_5_routes=top_5_routes,
+                        top_5_routes_score=float(
+                            convert_to_python_type(
+                                score["top_5_routes_score"])),
+                        rank=int(convert_to_python_type(score["ranking"])))
 
                     # Store in database
                     create_or_update_boulder_beasts_ranking(

@@ -24,7 +24,7 @@ class BoulderPhoto(SQLModel, table=True):
     photo_id: str  # External ID of the photo
     storage_url: Optional[str] = None  # URL to stored image
     lines_data: Optional[str] = Field(default=None, sa_type=JSONB)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    inserted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Relationships
@@ -59,5 +59,5 @@ class CompetitionPhoto(SQLModel, table=True):
     description: Optional[str] = None
     approved: bool = Field(default=False)
     featured: bool = Field(default=False)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    inserted_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
