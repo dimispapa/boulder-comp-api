@@ -45,10 +45,10 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(media.router, prefix=f"{api_prefix}/media", tags=["media"])
 app.include_router(scoring.router,
                    prefix=f"{api_prefix}/scoring",
                    tags=["scoring"])
+app.include_router(media.router, prefix=f"{api_prefix}/media", tags=["media"])
 
 
 @setup_logging.connect
