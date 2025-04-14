@@ -16,6 +16,7 @@ from scraper.models import Crag, Boulder, Route, BoulderPhoto, RouteLineData
 from database.management.base import get_db_session
 from scraper.data_storage import store_crag_data
 from utils.loggers import logger
+from utils.cloudinary_uploader import CloudinaryUploader
 
 # Load environment variables
 load_dotenv()
@@ -333,4 +334,62 @@ def store_crag_data_task(self, file_path: str):
             "detail": f"Failed to store crag data: {str(e)}",
             "traceback": error_traceback,
             "file_path": file_path
+        }
+
+
+@celery_app.task(bind=True,
+                 name='tasks.scraper_tasks.upload_boulder_photos_task')
+def upload_boulder_photos_task(self, crag_name: str):
+    """
+    Celery task to upload boulder photos for a crag to Cloudinary.
+
+    Args:
+        crag_name (str): Name of the crag to upload photos for
+
+    Returns:
+        dict: Status and result of the upload operation
+    """
+    # Create a variable to store the latest progress info
+    progress_info = {}
+
+    try:
+        # Initialize uploader with database session
+        with get_db_session() as session:
+            uploader = CloudinaryUploader(session)
+
+            # Define a progress callback that also updates our local copy
+            def update_progress(info):
+                nonlocal progress_info
+                progress_info = info  # Store the latest info locally
+                self.update_state(state='PROGRESS', meta=info)
+
+            # Set the progress callback on the uploader
+            uploader.set_progress_callback(update_progress)
+
+            # Upload photos
+            logger.info(f"Starting photo upload for crag: {crag_name}")
+            result = uploader.upload_photos_for_crag(crag_name)
+
+            logger.info(f"Completed photo upload for crag: {crag_name}")
+            logger.info(f"Upload stats: {result.get('uploaded', 0)}/"
+                        f"{result.get('total', 0)} photos uploaded")
+
+            return {
+                "status": result.get("status", "error"),
+                "crag_name": crag_name,
+                "total_photos": result.get("total", 0),
+                "uploaded_photos": result.get("uploaded", 0),
+                "failed_photos": len(result.get("failures", [])),
+                "failures": result.get("failures", [])
+            }
+
+    except Exception as e:
+        error_traceback = traceback.format_exc()
+        logger.error(f"Error uploading boulder photos: {str(e)}")
+        logger.error(error_traceback)
+        return {
+            "status": "error",
+            "detail": f"Failed to upload boulder photos: {str(e)}",
+            "traceback": error_traceback,
+            "crag_name": crag_name
         }

@@ -31,8 +31,6 @@ async def start_score_calculation(request: ScoreCalculationRequest,
     Args:
         request (ScoreCalculationRequest): Request parameters including
                                            competition_id
-        background_tasks (BackgroundTasks): FastAPI background tasks
-        session (Session): Database session
 
     Returns:
         dict: Status of the calculation task
