@@ -2,7 +2,7 @@ services:
   # FastAPI application
   api:
     build: .
-    command: bash -c "/app/scripts/setup_dirs.sh && uvicorn main:app --host ${API_HOST} --port ${API_PORT} --reload --log-level debug"
+    command: bash -c "/app/scraper/scripts/setup_dirs.sh && uvicorn main:app --host ${API_HOST} --port ${API_PORT} --reload --log-level debug"
     volumes:
       - .:/app
       - ./data:/app/data
@@ -10,12 +10,8 @@ services:
       - "${API_PORT}:${API_PORT}"
     environment:
       # Database Configuration
-      - NEON_DB_HOST=${NEON_DB_HOST}
-      - NEON_DB_NAME=${NEON_DB_NAME}
-      - NEON_DB_USER=${NEON_DB_USER}
-      - NEON_DB_PASSWORD=${NEON_DB_PASSWORD}
-      - NEON_DB_PORT=${NEON_DB_PORT}
-      - NEON_DB_URL=${NEON_DB_URL}
+      - NEON_DB_MAIN_URL=${NEON_DB_MAIN_URL}
+      - NEON_DB_DEV_URL=${NEON_DB_DEV_URL}
       # Redis Configuration
       - REDIS_URL=${REDIS_URL}
       # API Configuration
@@ -62,18 +58,14 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.celery
-    command: bash -c "/app/scripts/setup_dirs.sh && celery -A tasks.celery_app worker --loglevel=debug"
+    command: bash -c "/app/scraper/scripts/setup_dirs.sh && celery -A tasks.celery_app worker --loglevel=debug"
     volumes:
       - .:/app
       - ./data:/app/data
     environment:
       # Database Configuration
-      - NEON_DB_HOST=${NEON_DB_HOST}
-      - NEON_DB_NAME=${NEON_DB_NAME}
-      - NEON_DB_USER=${NEON_DB_USER}
-      - NEON_DB_PASSWORD=${NEON_DB_PASSWORD}
-      - NEON_DB_PORT=${NEON_DB_PORT}
-      - NEON_DB_URL=${NEON_DB_URL}
+      - NEON_DB_MAIN_URL=${NEON_DB_MAIN_URL}
+      - NEON_DB_DEV_URL=${NEON_DB_DEV_URL}
       # Redis Configuration
       - REDIS_URL=${REDIS_URL}
       # API Configuration
