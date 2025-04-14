@@ -48,12 +48,12 @@ def monitor_task(task_id, verbose=False, timeout=1800):
                     current = task.info['current']
                     total = task.info['total']
                     percentage = int(current / total * 100) if total > 0 else 0
-                    print(
+                    logger.info(
                         f"Uploading photos: {current}/{total} ({percentage}%)")
                 elif 'message' in task.info:
-                    print(f"{current_status}: {task.info['message']}")
+                    logger.info(f"{current_status}: {task.info['message']}")
                 else:
-                    print(f"Status: {current_status}")
+                    logger.info(f"Status: {current_status}")
 
                 last_status = current_status
 
@@ -65,13 +65,13 @@ def monitor_task(task_id, verbose=False, timeout=1800):
                     total = result.get('total_photos', 0)
                     uploaded = result.get('uploaded_photos', 0)
                     failed = result.get('failed_photos', 0)
-                    print("Upload completed successfully")
-                    print(f"Total photos: {total}")
-                    print(f"Uploaded photos: {uploaded}")
-                    print(f"Failed photos: {failed}")
+                    logger.info("Upload completed successfully")
+                    logger.info(f"Total photos: {total}")
+                    logger.info(f"Uploaded photos: {uploaded}")
+                    logger.info(f"Failed photos: {failed}")
                 else:
-                    print(f"Upload failed: "
-                          f"{result.get('detail', 'Unknown error')}")
+                    logger.info(f"Upload failed: "
+                                f"{result.get('detail', 'Unknown error')}")
             return result
 
         # Sleep before checking again
@@ -112,12 +112,12 @@ def main():
     try:
         # Start the upload task using the existing celery task
         if args.verbose:
-            print(f"Starting photo upload for crag: {args.crag_name}")
+            logger.info(f"Starting photo upload for crag: {args.crag_name}")
 
         task = upload_boulder_photos_task.delay(args.crag_name)
 
         if args.verbose:
-            print(f"Task started with ID: {task.id}")
+            logger.info(f"Task started with ID: {task.id}")
 
         # Monitor the task until completion
         result = monitor_task(task.id, args.verbose, args.timeout)
@@ -134,7 +134,7 @@ def main():
         logger.error(traceback.format_exc())
 
         if args.verbose:
-            print(f"Error executing upload task: {str(e)}")
+            logger.error(f"Error executing upload task: {str(e)}")
         else:
             error_result = {
                 "status": "error",

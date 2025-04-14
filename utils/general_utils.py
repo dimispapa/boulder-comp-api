@@ -92,28 +92,41 @@ def extract_datetime_from_filename(filename: Union[str, Path]) -> datetime:
     return datetime.min
 
 
-def get_most_recent_json_file(data_dir: Path = Path("data/scraped"),
+def get_most_recent_json_file(data_dir=None,
                               crag_name: str = "inia-droushia") -> Path:
     """
     Get the most recent file in the data directory matching the pattern.
 
     Args:
-        data_dir (Path): The directory to search for files
-        pattern (str): The pattern to match for files
+        data_dir (Path, optional): The directory to search for files.
+                                    If None, uses PROJECT_ROOT/data/scraped
+        crag_name (str): The name of the crag to find files for
 
     Returns:
         Path: The most recent file matching the pattern
     """
+    # Determine project root
+    project_root = os.environ.get(
+        'PROJECT_ROOT',
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    )
+
+    # Setup the data directory
+    data_path = (Path(data_dir) if data_dir is not None
+                 else Path(project_root) / "data" / "scraped")
+
     # Format crag name to match file naming pattern
     formatted_crag_name = crag_name.lower().replace(' ', '_')
     logger.info(f"Finding most recent file for crag: {crag_name}")
+    logger.info(f"Search directory: {data_path}")
 
     # Get all matching files
     pattern = f"{formatted_crag_name}_*.json"
-    matching_files = list(data_dir.glob(pattern))
+    matching_files = list(data_path.glob(pattern))
 
     if not matching_files:
-        logger.error(f"No data files found for crag: {crag_name}")
+        logger.error("No data files found for crag: "
+                     f"{crag_name} in {data_path}")
         raise HTTPException(
             status_code=404,
             detail=f"No scraped data found for crag: {crag_name}")

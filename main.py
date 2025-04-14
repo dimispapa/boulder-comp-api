@@ -9,7 +9,7 @@ from utils.loggers import logger
 from database import create_db_and_tables
 
 # Import routers
-from api.routes import scraper, scoring, media
+from api.routes import scoring, media
 
 # Set default timezone for datetime operations
 pytz.timezone('UTC')
@@ -32,7 +32,7 @@ except Exception as e:
 # Initialize FastAPI app
 app = FastAPI(
     title="Boulder Competition API",
-    description="API for Boulder Competition scoring and data scraping",
+    description="API for Boulder Competition scoring and data management",
     version=api_version)
 
 # Configure CORS
@@ -45,9 +45,6 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(scraper.router,
-                   prefix=f"{api_prefix}/scraper",
-                   tags=["scraper"])
 app.include_router(media.router, prefix=f"{api_prefix}/media", tags=["media"])
 app.include_router(scoring.router,
                    prefix=f"{api_prefix}/scoring",

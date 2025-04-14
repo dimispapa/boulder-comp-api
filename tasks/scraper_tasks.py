@@ -14,7 +14,6 @@ from datetime import datetime
 
 from scraper.models import Crag, Boulder, Route, BoulderPhoto, RouteLineData
 from database.management.base import get_db_session
-from scraper.data_storage import store_crag_data
 from utils.loggers import logger
 from utils.cloudinary_uploader import CloudinaryUploader
 
@@ -98,13 +97,16 @@ def scrape_crag_task(self, crag_name: str):
             save_result = save_crag_to_json(crag_data, file_path)
 
             if save_result["status"] == "success":
-                # Trigger the storage task
-                store_crag_data_task.delay(str(file_path))
-
                 update_progress({
-                    **progress_info, 'status': 'data_saved',
-                    'file_path': str(file_path),
-                    'boulders_count': len(crag_data.boulders)
+                    **progress_info, 'status':
+                    'data_saved',
+                    'file_path':
+                    str(file_path),
+                    'boulders_count':
+                    len(crag_data.boulders),
+                    'message':
+                    'Data saved successfully. To import into the '
+                    'database, use database/management/init_crag_core.py'
                 })
             else:
                 update_progress({
@@ -208,132 +210,153 @@ def save_crag_to_json(crag: Crag, file_path: Path) -> dict:
                     route.url,
                     "grade":
                     route.grade,
-                    "rating":
-                    route.rating,
-                    "description":
-                    route.description,
-                    "line_data": [line.to_dict() for line in route.line_data]
+                    "difficulty":
+                    route.difficulty,
+                    "quality":
+                    route.quality,
+                    "fa":
+                    route.fa,
+                    "line_data": [{
+                        "photo_id": line.photo_id,
+                        "anchor_points": line.anchor_points,
+                        "stroke_color": line.stroke_color,
+                        "stroke_width": line.stroke_width
+                    } for line in route.line_data]
                 } for route in boulder.routes]
             } for boulder in crag.boulders]
         }
 
-        # Save to JSON file
+        # Write to file with nice indentation for readability
         with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(crag_dict, f, ensure_ascii=False, indent=2)
+            json.dump(crag_dict, f, indent=2, ensure_ascii=False)
 
-        # Get file info for verification
-        file_info = os.stat(file_path)
-        file_size_kb = round(file_info.st_size / 1024, 2)
+        # Verify file was created
+        if not file_path.exists():
+            return {
+                "status": "error",
+                "detail": f"Failed to verify file was created: {file_path}"
+            }
 
-        logger.info(
-            f"Successfully saved crag data to {file_path} ({file_size_kb} KB)")
+        # Log success
+        logger.info(f"Successfully saved data to file: {file_path}")
+        file_size_kb = round(file_path.stat().st_size / 1024, 2)
+        logger.info(f"File size: {file_size_kb} KB")
 
         return {"status": "success", "file_path": str(file_path)}
 
     except Exception as e:
-        error_traceback = traceback.format_exc()
         logger.error(f"Error saving crag to JSON: {str(e)}")
-        logger.error(error_traceback)
-        return {
-            "status": "error",
-            "detail": f"Failed to save crag data: {str(e)}",
-            "traceback": error_traceback
-        }
+        logger.error(traceback.format_exc())
+        return {"status": "error", "detail": str(e)}
 
 
+# For database management import
 @celery_app.task(bind=True, name='tasks.scraper_tasks.store_crag_data_task')
 def store_crag_data_task(self, file_path: str):
     """
-    Celery task to store scraped crag data from a JSON file to the database.
+    Celery task to store scraped crag data to the database.
+
+    Note: This task is only meant to be called by the database
+    management scripts, not directly through the API.
 
     Args:
-        file_path (str): Path to the JSON file containing crag data
+        file_path (str): Path to the JSON file with scraped data
 
     Returns:
         dict: Status and result of the storage operation
     """
+    from scraper.data_storage import store_crag_data
+
     try:
-        logger.info(f"Starting storage task for file: {file_path}")
+        # Validate and normalize file path
+        file_path = Path(file_path)
+        if not file_path.exists():
+            return {
+                "status": "error",
+                "detail": f"File not found: {file_path}"
+            }
 
-        # Load the crag data from JSON file
+        # Log file stats
+        file_stat = file_path.stat()
+        file_size_kb = round(file_stat.st_size / 1024, 2)
+        logger.info(f"Loading data from file: {file_path}")
+        logger.info(f"File size: {file_size_kb} KB")
+
+        # Load data from JSON file
         with open(file_path, 'r', encoding='utf-8') as f:
-            crag_dict = json.load(f)
+            data = json.load(f)
 
-        # Convert the dictionary back to a Crag object
-        crag = Crag(name=crag_dict["name"],
-                    display_name=crag_dict["display_name"],
+        # Check if the file has the expected structure
+        if not isinstance(data, dict) or 'boulders' not in data:
+            return {
+                "status":
+                "error",
+                "detail":
+                "Invalid file format. Expected a crag object with boulders."
+            }
+
+        # Convert JSON data back to Crag object
+        crag = Crag(name=data.get('name', ''),
+                    display_name=data.get('display_name', ''),
                     boulders=[])
 
-        # Reconstruct each Boulder with its routes and photos
-        for boulder_dict in crag_dict["boulders"]:
-            # Create route objects
-            routes = []
-            for route_dict in boulder_dict["routes"]:
-                # Reconstruct line_data objects if present
-                line_data = []
-                if "line_data" in route_dict and route_dict["line_data"]:
-                    for line_dict in route_dict["line_data"]:
-                        line_data.append(
-                            RouteLineData(
-                                photo_id=line_dict["photo_id"],
-                                line_points=line_dict["line_points"]))
+        # Add boulders
+        for boulder_data in data.get('boulders', []):
+            boulder = Boulder(name=boulder_data.get('name', ''),
+                              display_name=boulder_data.get(
+                                  'display_name', ''),
+                              url=boulder_data.get('url', ''),
+                              gps_postgis=boulder_data.get('gps_postgis'),
+                              gps_string=boulder_data.get('gps_string'),
+                              photos=[],
+                              routes=[])
 
-                # Create the Route object
-                route = Route(name=route_dict["name"],
-                              display_name=route_dict.get(
-                                  "display_name", route_dict["name"]),
-                              url=route_dict["url"],
-                              grade=route_dict["grade"],
-                              rating=route_dict["rating"],
-                              description=route_dict["description"],
-                              line_data=line_data)
-                routes.append(route)
+            # Add photos
+            for photo_data in boulder_data.get('photos', []):
+                photo = BoulderPhoto(id=photo_data.get('id'),
+                                     source_url=photo_data.get(
+                                         'source_url', ''),
+                                     order=photo_data.get('order', 0),
+                                     lines_data=photo_data.get('lines_data'))
+                boulder.photos.append(photo)
 
-            # Create photo objects
-            photos = []
-            for photo_dict in boulder_dict["photos"]:
-                photo = BoulderPhoto(
-                    id=photo_dict["id"],
-                    source_url=photo_dict.get("source_url",
-                                              photo_dict.get("source_url",
-                                                             "")),
-                    order=photo_dict.get("order", 0),
-                    lines_data=photo_dict.get("lines_data", {}))
-                photos.append(photo)
+            # Add routes
+            for route_data in boulder_data.get('routes', []):
+                route = Route(name=route_data.get('name', ''),
+                              display_name=route_data.get('display_name', ''),
+                              url=route_data.get('url', ''),
+                              grade=route_data.get('grade', ''),
+                              difficulty=route_data.get('difficulty', 0),
+                              quality=route_data.get('quality', 0),
+                              fa=route_data.get('fa', ''),
+                              line_data=[])
 
-            # Create the Boulder object
-            boulder = Boulder(name=boulder_dict["name"],
-                              display_name=boulder_dict.get(
-                                  "display_name", boulder_dict["name"]),
-                              url=boulder_dict["url"],
-                              gps_postgis=boulder_dict["gps_postgis"],
-                              gps_string=boulder_dict["gps_string"],
-                              routes=routes,
-                              photos=photos)
+                # Add route line data
+                for line_data in route_data.get('line_data', []):
+                    line = RouteLineData(
+                        photo_id=line_data.get('photo_id', ''),
+                        anchor_points=line_data.get('anchor_points', []),
+                        stroke_color=line_data.get('stroke_color', ''),
+                        stroke_width=line_data.get('stroke_width', 0))
+                    route.line_data.append(line)
+
+                boulder.routes.append(route)
+
             crag.boulders.append(boulder)
 
-        # Store the data in the database using SQLModel session
+        # Store to database
         with get_db_session() as session:
+            # Call the store_crag_data function
             result = store_crag_data(crag, session)
-
-        logger.info(f"Completed storage task for file: {file_path}")
-        logger.info(f"Storage result: {result}")
-
-        return {
-            "status": "success" if result["status"] == "success" else "error",
-            "file_path": file_path,
-            "storage_result": result
-        }
+            return result
 
     except Exception as e:
-        error_traceback = traceback.format_exc()
-        logger.error(f"Error in storage task: {str(e)}")
-        logger.error(error_traceback)
+        logger.error(f"Error storing crag data: {str(e)}")
+        logger.error(traceback.format_exc())
         return {
             "status": "error",
             "detail": f"Failed to store crag data: {str(e)}",
-            "traceback": error_traceback,
-            "file_path": file_path
+            "traceback": traceback.format_exc()
         }
 
 
@@ -343,53 +366,48 @@ def upload_boulder_photos_task(self, crag_name: str):
     """
     Celery task to upload boulder photos for a crag to Cloudinary.
 
+    This task is used by the upload_boulder_photos.py CLI script.
+
     Args:
         crag_name (str): Name of the crag to upload photos for
 
     Returns:
         dict: Status and result of the upload operation
     """
-    # Create a variable to store the latest progress info
-    progress_info = {}
-
     try:
-        # Initialize uploader with database session
+        progress_info = {}
+
         with get_db_session() as session:
             uploader = CloudinaryUploader(session)
 
             # Define a progress callback that also updates our local copy
             def update_progress(info):
                 nonlocal progress_info
-                progress_info = info  # Store the latest info locally
+                progress_info = info
                 self.update_state(state='PROGRESS', meta=info)
 
-            # Set the progress callback on the uploader
-            uploader.set_progress_callback(update_progress)
+            # Upload photos with progress tracking
+            result = uploader.upload_photos_for_crag(
+                crag_name, progress_callback=update_progress)
 
-            # Upload photos
-            logger.info(f"Starting photo upload for crag: {crag_name}")
-            result = uploader.upload_photos_for_crag(crag_name)
-
-            logger.info(f"Completed photo upload for crag: {crag_name}")
-            logger.info(f"Upload stats: {result.get('uploaded', 0)}/"
-                        f"{result.get('total', 0)} photos uploaded")
+            logger.info(f"Photo upload complete for crag: {crag_name}")
+            logger.info(f"Total: {result.get('total', 0)}, "
+                        f"Uploaded: {result.get('uploaded', 0)}, "
+                        f"Failed: {result.get('failed', 0)}")
 
             return {
-                "status": result.get("status", "error"),
+                "status": "success",
                 "crag_name": crag_name,
                 "total_photos": result.get("total", 0),
                 "uploaded_photos": result.get("uploaded", 0),
-                "failed_photos": len(result.get("failures", [])),
-                "failures": result.get("failures", [])
+                "failed_photos": result.get("failed", 0)
             }
 
     except Exception as e:
-        error_traceback = traceback.format_exc()
         logger.error(f"Error uploading boulder photos: {str(e)}")
-        logger.error(error_traceback)
+        logger.error(traceback.format_exc())
         return {
             "status": "error",
             "detail": f"Failed to upload boulder photos: {str(e)}",
-            "traceback": error_traceback,
-            "crag_name": crag_name
+            "traceback": traceback.format_exc()
         }

@@ -19,45 +19,6 @@ from utils.cloudinary_uploader import CloudinaryUploader
 router = APIRouter()
 
 
-@router.post("/upload-boulder-photos/{crag_name}")
-async def upload_boulder_photos_to_cloudinary(
-        crag_name: str = "inia-droushia") -> Dict[str, Any]:
-    """
-    Upload boulder photos for a crag directly to Cloudinary (synchronous).
-
-    Args:
-        crag_name (str): Name of the crag to process photos for.
-                         Default is "inia-droushia".
-
-    Returns:
-        dict: Upload result information
-    """
-    try:
-        # Create a CloudinaryUploader and upload photos
-        with get_db() as session:
-            uploader = CloudinaryUploader(session)
-            result = uploader.upload_photos_for_crag(crag_name)
-
-            return {
-                "status":
-                result.get("status", "error"),
-                "crag_name":
-                crag_name,
-                "total_photos":
-                result.get("total", 0),
-                "uploaded_photos":
-                result.get("uploaded", 0),
-                "failed_photos":
-                result.get("failed", 0),
-                "message":
-                (f"Boulder photos upload for crag '{crag_name}' completed")
-            }
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to upload boulder photos: {str(e)}")
-
-
 @router.post("/upload-competition-photos/{competition_id}")
 async def upload_user_photo(
     competition_id: str,

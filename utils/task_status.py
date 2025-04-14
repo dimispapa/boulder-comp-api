@@ -7,7 +7,6 @@ from utils.general_utils import format_time_from_seconds
 
 # Task type constants
 TASK_TYPE_SCRAPE = "scrape"
-TASK_TYPE_STORE = "store"
 
 # Status constants
 STATUS_IN_PROGRESS = "in_progress"
@@ -17,8 +16,7 @@ STATUS_ERROR = "error"
 
 # Task-specific status mapping
 SCRAPE_STATUSES = ["saving_data", "data_saved", "save_error"]
-STORE_STATUSES = ["storing_data", "data_stored", "storage_error"]
-ERROR_STATUSES = ["save_error", "storage_error"]
+ERROR_STATUSES = ["save_error"]
 
 
 def get_task_instance(task_id: str,
@@ -28,66 +26,53 @@ def get_task_instance(task_id: str,
 
     Args:
         task_id (str): The ID of the task
-        task_type (str, optional): The type of task ("scrape" or "store")
+        task_type (str, optional): The type of task ("scrape")
 
     Returns:
         Tuple[AsyncResult, str]: The task instance and determined task type
     """
-    from tasks.scraper_tasks import scrape_crag_task, store_crag_data_task
+    from tasks.scraper_tasks import scrape_crag_task
 
-    if task_type == TASK_TYPE_STORE:
-        return store_crag_data_task.AsyncResult(task_id), TASK_TYPE_STORE
-    elif task_type == TASK_TYPE_SCRAPE:
+    if task_type == TASK_TYPE_SCRAPE:
         return scrape_crag_task.AsyncResult(task_id), TASK_TYPE_SCRAPE
     else:
-        # Try both tasks to determine the type
-        scrape_task = scrape_crag_task.AsyncResult(task_id)
-        store_task = store_crag_data_task.AsyncResult(task_id)
-
-        # Use the task that exists/has state
-        if scrape_task.state != 'PENDING' or store_task.state == 'PENDING':
-            return scrape_task, TASK_TYPE_SCRAPE
-        else:
-            return store_task, TASK_TYPE_STORE
+        # Only scrape task type is now supported
+        return scrape_crag_task.AsyncResult(task_id), TASK_TYPE_SCRAPE
 
 
-def prepare_basic_result(task_id: str, task: AsyncResult,
+def prepare_basic_result(state: str, info: Dict,
                          task_type: str) -> Dict[str, Any]:
     """
     Prepare the basic result dictionary with task identification.
 
     Args:
-        task_id (str): The ID of the task
-        task (AsyncResult): The Celery task instance
+        state (str): The state of the task
+        info (Dict): Task info dictionary
         task_type (str): The type of task
 
     Returns:
         Dict[str, Any]: Basic result dictionary
     """
-    return {
-        "task_id": task_id,
-        "task_type": task_type,
-        "state": task.state,
-    }
+    return {"state": state, "task_type": task_type, "info": info}
 
 
-def handle_completed_task(task: AsyncResult,
-                          base_result: Dict[str, Any]) -> Dict[str, Any]:
+def handle_completed_task(task: AsyncResult, task_type: str) -> Dict[str, Any]:
     """
     Handle processing of a completed task (successful or failed).
 
     Args:
         task (AsyncResult): The completed Celery task
-        base_result (Dict[str, Any]): The base result dictionary to update
+        task_type (str): The type of task
 
     Returns:
         Dict[str, Any]: Updated result dictionary
     """
-    result = base_result.copy()
-
-    # Add completion timestamp
-    result["date_completed"] = (task.date_done.isoformat()
-                                if task.date_done else None)
+    result = {
+        "state": task.state,
+        "task_type": task_type,
+        "date_completed":
+        (task.date_done.isoformat() if task.date_done else None)
+    }
 
     if task.successful():
         # Handle successful task
@@ -105,18 +90,17 @@ def handle_completed_task(task: AsyncResult,
 
 
 def handle_successful_task(task: AsyncResult,
-                           base_result: Dict[str, Any]) -> Dict[str, Any]:
+                           result: Dict[str, Any]) -> Dict[str, Any]:
     """
     Process a successfully completed task result.
 
     Args:
         task (AsyncResult): The successful Celery task
-        base_result (Dict[str, Any]): The base result dictionary to update
+        result (Dict[str, Any]): The base result dictionary to update
 
     Returns:
         Dict[str, Any]: Updated result dictionary
     """
-    result = base_result.copy()
     task_result = task.result
 
     # Check if result is a dict with status key
@@ -139,49 +123,6 @@ def handle_successful_task(task: AsyncResult,
             # Add crag name if available
             if "crag_name" in task_result:
                 result["crag_name"] = task_result["crag_name"]
-
-            # Add detailed reconciliation info for storage tasks
-            if result.get("task_type") == TASK_TYPE_STORE:
-                # Add reconciliation data for easier tracking
-                result["reconciliation"] = {
-                    "total_boulders":
-                    task_result.get("total_boulders", 0),
-                    "total_routes":
-                    task_result.get("total_routes", 0),
-                    "stored_boulders":
-                    task_result.get("stored_boulders", 0),
-                    "stored_routes":
-                    task_result.get("stored_routes", 0),
-                    "stored_photos":
-                    task_result.get("stored_photos", 0),
-                    "stored_line_data":
-                    task_result.get("stored_line_data", 0),
-                    "skipped_boulders_count":
-                    len(task_result.get("skipped_boulders", [])),
-                }
-
-                # Calculate success rates if available
-                if (task_result.get("total_boulders", 0) > 0
-                        and "boulder_success_rate" not in task_result):
-                    stored = task_result.get("stored_boulders", 0)
-                    total = task_result.get("total_boulders", 0)
-                    result["reconciliation"]["boulder_success_rate"] = round(
-                        (stored / total * 100), 2)
-                else:
-                    result["reconciliation"][
-                        "boulder_success_rate"] = task_result.get(
-                            "boulder_success_rate", 0)
-
-                if (task_result.get("total_routes", 0) > 0
-                        and "route_success_rate" not in task_result):
-                    stored = task_result.get("stored_routes", 0)
-                    total = task_result.get("total_routes", 0)
-                    result["reconciliation"]["route_success_rate"] = round(
-                        (stored / total * 100), 2)
-                else:
-                    result["reconciliation"][
-                        "route_success_rate"] = task_result.get(
-                            "route_success_rate", 0)
     else:
         # Default status if none in result
         result["status"] = STATUS_COMPLETED
@@ -190,49 +131,67 @@ def handle_successful_task(task: AsyncResult,
     return result
 
 
-def handle_in_progress_task(task: AsyncResult, base_result: Dict[str, Any],
+def handle_in_progress_task(task: AsyncResult,
                             task_type: str) -> Dict[str, Any]:
     """
     Process information for a task that is still in progress.
 
     Args:
         task (AsyncResult): The in-progress Celery task
-        base_result (Dict[str, Any]): The base result dictionary to update
         task_type (str): The type of task
 
     Returns:
         Dict[str, Any]: Updated result dictionary
     """
-    result = base_result.copy()
-    result["status"] = STATUS_IN_PROGRESS
+    result = {
+        "state": task.state,
+        "task_type": task_type,
+        "status": STATUS_IN_PROGRESS
+    }
 
-    # Include task info if available
-    if not task.info:
-        return result
+    # If the task has info
+    if hasattr(task, 'info') and task.info:
+        # Copy relevant info to the result
+        info = task.info
 
-    result["progress_info"] = task.info
+        # Add progress status and message
+        if 'status' in info:
+            result['progress_status'] = info['status']
+        if 'message' in info:
+            result['message'] = info['message']
 
-    # Update status based on task info if available
-    if "status" in task.info:
-        task_status = task.info["status"]
+        # Add current/total progress counters
+        if 'current' in info and 'total' in info:
+            current = info['current']
+            total = info['total']
+            result['current'] = current
+            result['total'] = total
 
-        # Use specific status if it's a known one
-        if task_status in SCRAPE_STATUSES + STORE_STATUSES:
-            result["status"] = task_status
+            # Calculate and add percentage
+            if total > 0:
+                percentage = int(current / total * 100)
+                result['percentage'] = percentage
 
-            # Handle error statuses
-            if task_status in ERROR_STATUSES and "error" in task.info:
-                result["error"] = task.info["error"]
+            # Estimate time remaining if available
+            if 'elapsed' in info and current > 0:
+                elapsed = info['elapsed']
+                result['elapsed'] = elapsed
 
-    # Format elapsed time if available
-    if "elapsed_seconds" in task.info:
-        seconds = task.info["elapsed_seconds"]
-        result["progress_info"]["elapsed_time"] = format_time_from_seconds(
-            seconds)
+                # Format elapsed time
+                result['elapsed_formatted'] = format_time_from_seconds(elapsed)
 
-    # Calculate completion percentage and estimated time for scraping tasks
-    if task_type == TASK_TYPE_SCRAPE:
-        add_scraping_progress_info(task, result)
+                # Estimate remaining time
+                if total > current:
+                    remaining_items = total - current
+                    avg_time_per_item = elapsed / current
+                    estimated_remaining = remaining_items * avg_time_per_item
+                    result['estimated_remaining'] = estimated_remaining
+                    result['estimated_remaining_formatted'] = \
+                        format_time_from_seconds(estimated_remaining)
+
+        # Add more detailed progress info for scraping tasks
+        if task_type == TASK_TYPE_SCRAPE:
+            add_scraping_progress_info(task, result)
 
     return result
 
@@ -240,41 +199,22 @@ def handle_in_progress_task(task: AsyncResult, base_result: Dict[str, Any],
 def add_scraping_progress_info(task: AsyncResult, result: Dict[str,
                                                                Any]) -> None:
     """
-    Add scraping-specific progress information to the result, including
-    completion percentage and estimated time remaining.
+    Add detailed progress information specific to scraping tasks.
 
     Args:
-        task (AsyncResult): The Celery task
+        task (AsyncResult): The scraping Celery task
         result (Dict[str, Any]): The result dictionary to update
     """
-    # Check if we have the necessary boulder count information
-    has_boulder_counts = ("total_boulders" in task.info
-                          and "completed_boulders" in task.info
-                          and task.info["total_boulders"] > 0)
+    info = task.info or {}
 
-    if not has_boulder_counts:
-        return
+    # Add boulder-specific info if available
+    if 'boulder_name' in info:
+        result['current_boulder'] = info['boulder_name']
 
-    # Get the counts for calculations
-    completed = task.info["completed_boulders"]
-    total = task.info["total_boulders"]
+    # Add sector info if available
+    if 'sector_name' in info:
+        result['current_sector'] = info['sector_name']
 
-    # Calculate completion percentage
-    completion_percent = (completed / total) * 100
-    result["progress_info"][
-        "completion_percent"] = f"{completion_percent:.1f}%"
-
-    # Calculate estimated time remaining if we have elapsed time
-    if completed > 0 and "elapsed_seconds" in task.info:
-        elapsed = task.info["elapsed_seconds"]
-
-        # Calculate seconds per boulder
-        sec_per_boulder = elapsed / completed
-
-        # Estimate remaining seconds
-        remaining_boulders = total - completed
-        remaining_seconds = int(remaining_boulders * sec_per_boulder)
-
-        # Format and add the remaining time
-        remaining_time = format_time_from_seconds(remaining_seconds)
-        result["progress_info"]["estimated_time_remaining"] = remaining_time
+    # Add crag info if available
+    if 'crag_name' in info:
+        result['crag_name'] = info['crag_name']
