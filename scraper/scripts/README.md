@@ -1,14 +1,15 @@
 # Scraper Command-Line Tools
 
-This directory contains command-line tools for scraping, storing, and managing crag data.
+This directory contains command-line tools for scraping crag data and uploading boulder photos.
 
 ## Overview
 
-The scripts in this directory provide command-line alternatives to the API endpoints for scraping and data management. These scripts allow you to:
+The scripts in this directory provide command-line tools for scraping data from 27crags.com and uploading boulder photos to Cloudinary. These scripts allow you to:
 
-1. Scrape crag data from 27crags.com
-2. Store scraped data to the database
-3. Upload boulder photos to Cloudinary
+1. Scrape crag data from 27crags.com and save to JSON files
+2. Upload boulder photos to Cloudinary
+
+**Note:** Database storage operations have been removed from these scripts. For database operations, please use the scripts in the `database/management` directory.
 
 ## Main Entry Point
 
@@ -26,7 +27,6 @@ or if you made the scripts executable:
 
 Available commands:
 - `scrape`: Scrape a crag from 27crags.com
-- `store`: Store scraped crag data to the database
 - `upload`: Upload boulder photos for a crag to Cloudinary
 - `help`: Show help information
 
@@ -35,30 +35,16 @@ Available commands:
 ### Scrape Crag
 
 Scrapes data from a 27crags.com crag page and saves it to a JSON file.
-Data is automatically stored to the database after successful scraping.
+Can optionally upload boulder photos directly after scraping.
 
 ```bash
-./scripts/scrape_crag.py <crag_name> [--verbose]
+./scripts/scrape_crag.py <crag_name> [--verbose] [--upload-photos]
 ```
 
 Options:
 - `crag_name`: Name of the crag to scrape (e.g., "inia-droushia")
 - `--verbose`, `-v`: Print verbose progress information
-
-### Store Crag Data
-
-Stores previously scraped crag data to the database.
-
-```bash
-./scripts/store_crag_data.py [--file FILE] [--crag CRAG] [--verbose]
-```
-
-Options:
-- `--file`, `-f`: Path to the JSON file to store
-- `--crag`, `-c`: Name of the crag to find the most recent file for
-- `--verbose`, `-v`: Print verbose information
-
-Note: Either `--file` or `--crag` must be provided.
+- `--upload-photos`, `-u`: Upload boulder photos after scraping
 
 ### Upload Boulder Photos
 
@@ -72,6 +58,15 @@ Options:
 - `crag_name`: Name of the crag to upload photos for (e.g., "inia-droushia")
 - `--verbose`, `-v`: Print verbose information
 
+## Database Integration
+
+To integrate the scraped data with your database, use the management scripts in `database/management`:
+
+1. `init_db_all.py`: Initialize the database schema
+2. `init_crag_core.py`: Import boulder and route data from the JSON files created by the scraper
+
+This separation allows for more control over your database operations while still leveraging the scraped data.
+
 ## Examples
 
 ### Scrape a crag with verbose output
@@ -80,10 +75,10 @@ Options:
 ./scripts/scraper_cli.py scrape inia-droushia --verbose
 ```
 
-### Store the most recent scraped data for a crag
+### Scrape a crag and upload photos in one command
 
 ```bash
-./scripts/scraper_cli.py store --crag inia-droushia
+./scripts/scraper_cli.py scrape inia-droushia --upload-photos
 ```
 
 ### Upload boulder photos for a crag
