@@ -9,19 +9,27 @@ import ssl
 # Load environment variables
 load_dotenv()
 
-# Get Redis URL from environment (Heroku sets this automatically)
+# Get Redis URL from environment
 redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
 
-# Create Celery app with SSL configuration for Heroku Redis
-celery_app = Celery(
-    'boulder_comp_api',
-    broker=redis_url,
-    backend=redis_url,
-    include=['tasks.scraper_tasks', 'tasks.scoring_tasks'],
-    # These broker/backend settings handle the SSL cert requirements
-    broker_use_ssl={'ssl_cert_reqs': ssl.CERT_NONE},
-    redis_backend_use_ssl={'ssl_cert_reqs': ssl.CERT_NONE}
-)
+# Check if we're in development environment
+is_dev = os.getenv("DEV_ENV", "False").lower() == "true"
+
+# Create Celery app with conditional SSL configuration
+if is_dev:
+    # Dev environment - no SSL configuration
+    celery_app = Celery('boulder_comp_api',
+                        broker=redis_url,
+                        backend=redis_url,
+                        include=['tasks.scraper_tasks', 'tasks.scoring_tasks'])
+else:
+    # Production environment - use SSL configuration
+    celery_app = Celery('boulder_comp_api',
+                        broker=redis_url,
+                        backend=redis_url,
+                        include=['tasks.scraper_tasks', 'tasks.scoring_tasks'],
+                        broker_use_ssl={'ssl_cert_reqs': ssl.CERT_NONE},
+                        redis_backend_use_ssl={'ssl_cert_reqs': ssl.CERT_NONE})
 
 # Configure Celery
 celery_app.conf.update(
