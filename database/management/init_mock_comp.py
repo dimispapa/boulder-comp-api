@@ -5,14 +5,16 @@ from datetime import datetime, timedelta
 from sqlmodel import Session, select
 import bcrypt
 import os
+import random
 
 from utils.loggers import logger
+from database.models.enums import (CompetitionStatus, CategoryType,
+                                   MarathonSubCategory, UserRole)
 from database.models.competitions import (Competition, CompetitionCategory,
                                           Team, Participant, Ascent,
-                                          CompetitionStatus, CategoryType,
                                           CompVoucher)
 from database.models.crags import Crag, Route
-from database.models.accounts import User, UserRole
+from database.models.accounts import User
 
 
 # Debug function to verify participant is_solo status
@@ -161,12 +163,44 @@ def import_mock_teams(session: Session):
 
     # Get captain participants
     captain_emails = {
+        # Original teams
         "Rock Stars": "john.smith@example.com",
         "Boulderers": "sarah.d@example.com",
         "Flash Force": "robert.t@example.com",
         "Grip Masters": "thomas.w@example.com",
         "The Climbers": "jessica.l@example.com",
-        "Ramblers": "lucas.p@example.com"
+        "Ramblers": "lucas.p@example.com",
+
+        # New teams - higher grade subcategory (6B and above)
+        "Vertical Elite": "chris.e@example.com",
+        "Hard Crimpers": "maria.r@example.com",
+        "Send Squad": "kevin.l@example.com",
+
+        # New teams - lower grade subcategory (6A+ and under)
+        "Crag Hoppers": "alex.t@example.com",
+        "Rock Rebels": "sarah.c@example.com",
+        "Boulder Brigade": "emily.j@example.com"
+    }
+
+    # Assign subcategories to teams
+    team_subcategories = {
+        # Original teams
+        "Rock Stars": MarathonSubCategory.gte_6B,
+        "Boulderers": MarathonSubCategory.lt_6B,
+        "Flash Force": MarathonSubCategory.gte_6B,
+        "Grip Masters": MarathonSubCategory.lt_6B,
+        "The Climbers": MarathonSubCategory.gte_6B,
+        "Ramblers": MarathonSubCategory.lt_6B,
+
+        # New teams - higher grade subcategory (6B and above)
+        "Vertical Elite": MarathonSubCategory.gte_6B,
+        "Hard Crimpers": MarathonSubCategory.gte_6B,
+        "Send Squad": MarathonSubCategory.gte_6B,
+
+        # New teams - lower grade subcategory (6A+ and under)
+        "Crag Hoppers": MarathonSubCategory.lt_6B,
+        "Rock Rebels": MarathonSubCategory.lt_6B,
+        "Boulder Brigade": MarathonSubCategory.lt_6B
     }
 
     # Get captains' user IDs directly (not participant IDs)
@@ -178,7 +212,7 @@ def import_mock_teams(session: Session):
         if user:
             captains[team_name] = user.id
 
-    # Create teams with captains
+    # Create teams with captains and subcategories
     teams = []
     for team_name, captain_id in captains.items():
         # Generate a unique team code
@@ -187,14 +221,15 @@ def import_mock_teams(session: Session):
         team = Team(competition_id=comp.id,
                     name=team_name,
                     captain_id=captain_id,
-                    team_code=team_code
+                    team_code=team_code,
+                    marathon_subcategory=team_subcategories[team_name]
                     # Using default spots=3 from the model
                     )
         teams.append(team)
 
     session.add_all(teams)
     session.commit()
-    logger.info(f"Created {len(teams)} teams with captains")
+    logger.info(f"Created {len(teams)} teams with captains and subcategories")
 
     # Now update the participants with their team IDs
     teams_by_name = {}
@@ -564,10 +599,6 @@ def import_mock_remaining_participants(session: Session):
     remaining_team_members = [
         # Rock Stars team
         {
-            "email": "emily.j@example.com",
-            "team_name": "Rock Stars"
-        },
-        {
             "email": "michael.b@example.com",
             "team_name": "Rock Stars"
         },
@@ -595,31 +626,122 @@ def import_mock_remaining_participants(session: Session):
 
         # The Climbers team - adding members to make it valid
         {
-            "email":
-            "alex.t@example.com",  # Was solo, now added to The Climbers
+            "email": "rebecca.c@example.com",
             "team_name": "The Climbers"
         },
         {
             "email":
-            "sarah.c@example.com",  # Was solo, now added to The Climbers
+            "michael.b@gmail.com",  # Using a new email to avoid conflicts
             "team_name": "The Climbers"
         },
 
         # Ramblers team
         {
-            "email": "rebecca.c@example.com",
+            "email": "jennifer.h@gmail.com",  # New email
             "team_name": "Ramblers"
+        },
+        {
+            "email": "david.j@gmail.com",  # New email
+            "team_name": "Ramblers"
+        },
+
+        # New teams - Vertical Elite (6B and above)
+        {
+            "email": "john.k@gmail.com",  # New email
+            "team_name": "Vertical Elite"
+        },
+        {
+            "email": "lisa.m@gmail.com",  # New email
+            "team_name": "Vertical Elite"
+        },
+
+        # Hard Crimpers (6B and above)
+        {
+            "email": "robert.n@gmail.com",  # New email
+            "team_name": "Hard Crimpers"
+        },
+        {
+            "email": "amanda.p@gmail.com",  # New email
+            "team_name": "Hard Crimpers"
+        },
+
+        # Send Squad (6B and above)
+        {
+            "email": "james.r@gmail.com",  # New email
+            "team_name": "Send Squad"
+        },
+        {
+            "email": "elizabeth.s@gmail.com",  # New email
+            "team_name": "Send Squad"
+        },
+
+        # Crag Hoppers (6A+ and under)
+        {
+            "email": "william.t@gmail.com",  # New email
+            "team_name": "Crag Hoppers"
+        },
+        {
+            "email": "olivia.u@gmail.com",  # New email
+            "team_name": "Crag Hoppers"
+        },
+
+        # Rock Rebels (6A+ and under)
+        {
+            "email": "benjamin.v@gmail.com",  # New email
+            "team_name": "Rock Rebels"
+        },
+        {
+            "email": "sophia.w@gmail.com",  # New email
+            "team_name": "Rock Rebels"
+        },
+
+        # Boulder Brigade (6A+ and under)
+        {
+            "email": "daniel.x@gmail.com",  # New email
+            "team_name": "Boulder Brigade"
+        },
+        {
+            "email": "emma.y@gmail.com",  # New email
+            "team_name": "Boulder Brigade"
         }
     ]
 
     # Create solo participants
-    solo_participants = [{
-        "email": "chris.e@example.com"
-    }, {
-        "email": "maria.r@example.com"
-    }, {
-        "email": "kevin.l@example.com"
-    }]
+    solo_participants = []  # We'll make all new users team members
+
+    # Create users for new team members
+    new_users = []
+    new_user_emails = set()
+
+    for member in remaining_team_members:
+        email = member["email"]
+        # Check if this is a new email not in the existing users
+        if email not in users and email not in new_user_emails:
+            # Extract first and last name from email
+            parts = email.split('@')[0].split('.')
+            first_name = parts[0].capitalize()
+            last_name = parts[1].capitalize() if len(parts) > 1 else "User"
+
+            new_user = User(first_name=first_name,
+                            last_name=last_name,
+                            email=email,
+                            hashed_password=bcrypt.hashpw(
+                                "password123".encode(),
+                                bcrypt.gensalt()).decode(),
+                            role=UserRole.user,
+                            confirmed_at=datetime.now())
+            new_users.append(new_user)
+            new_user_emails.add(email)
+
+    # Add new users to the database
+    if new_users:
+        session.add_all(new_users)
+        session.commit()
+        logger.info(f"Created {len(new_users)} new users for team members")
+
+        # Update our users dictionary with the newly created users
+        for user in new_users:
+            users[user.email] = user.id
 
     # Add all participants
     new_participants = []
@@ -694,8 +816,8 @@ def import_mock_ascents(session: Session):
     # Get participants with their team information and user details
     participants_query = select(
         Participant.id, Participant.team_id, Participant.is_solo,
-        Team.name.label("team_name"), User.id.label("user_id"),
-        User.first_name, User.last_name).join(
+        Team.name.label("team_name"), Team.marathon_subcategory,
+        User.id.label("user_id"), User.first_name, User.last_name).join(
             Team, Participant.team_id == Team.id, isouter=True).join(
                 User, Participant.user_id == User.id,
                 isouter=True).where(Participant.competition_id == comp.id)
@@ -705,6 +827,7 @@ def import_mock_ascents(session: Session):
     # Build participants dict and group by team
     participants = {}
     participants_by_team = {}
+    team_subcategories = {}
     solo_count = 0
     team_count = 0
 
@@ -722,13 +845,19 @@ def import_mock_ascents(session: Session):
         else:
             team_count += 1
 
+        # Store the subcategory for the team
+        if p.team_name and p.marathon_subcategory:
+            team_subcategories[p.team_name] = p.marathon_subcategory
+
         logger.info(f"Participant {full_name} has is_solo={is_solo}, "
                     f"team_id={p.team_id}, team_name={p.team_name}")
 
         participants[full_name] = {
             "id": p.id,
             "team_id": p.team_id,
-            "is_solo": is_solo  # Store is_solo status in the dictionary
+            "is_solo": is_solo,  # Store is_solo status in the dictionary
+            "team_name": p.team_name,
+            "marathon_subcategory": p.marathon_subcategory
         }
 
         # Group participants by team
@@ -792,194 +921,105 @@ def import_mock_ascents(session: Session):
             route_by_grade[grade] = []
         route_by_grade[grade].append(route)
 
-    # Create a mix of easy, medium, and hard routes
-    easy_grades = [
-        g for g in route_by_grade.keys()
-        if g in ['3', '3+', '4', '4+', '5', '5+', 'V0', 'V1', 'V2']
+    # Create lists of routes by grade range
+    lower_grade_routes = []  # 6A+ and below
+    higher_grade_routes = []  # 6B and above
+
+    # Lower grade routes (6A+ and below)
+    lower_grade_grades = [
+        '3', '3+', '4', '4+', '5', '5+', '6A', '6A+', 'V0', 'V1', 'V2'
     ]
-    medium_grades = [
-        g for g in route_by_grade.keys()
-        if g in ['6A', '6A+', '6B', '6B+', '6C', '6C+', 'V3', 'V4', 'V5']
+    for grade in lower_grade_grades:
+        if grade in route_by_grade:
+            lower_grade_routes.extend(route_by_grade[grade])
+
+    # Higher grade routes (6B and above)
+    higher_grade_grades = [
+        '6B', '6B+', '6C', '6C+', '7A', '7A+', '7B', '7B+', '7C', 'V3', 'V4',
+        'V5', 'V6', 'V7', 'V8', 'V9'
     ]
-    hard_grades = [
-        g for g in route_by_grade.keys()
-        if g in ['7A', '7A+', '7B', '7B+', '7C', 'V6', 'V7', 'V8', 'V9']
-    ]
+    for grade in higher_grade_grades:
+        if grade in route_by_grade:
+            higher_grade_routes.extend(route_by_grade[grade])
 
-    # Select a diverse set of routes for our mock ascents
-    selected_routes = []
+    # Make sure we have enough routes for each category
+    min_routes_per_category = MIN_ROUTE_LIMIT // 2
 
-    # Select some easy routes
-    for grade in easy_grades:
-        if grade in route_by_grade and route_by_grade[grade]:
-            selected_routes.extend(
-                route_by_grade[grade]
-                [:min(NO_OF_BEGINNER_ROUTES, len(route_by_grade[grade]))])
+    if len(lower_grade_routes) < min_routes_per_category:
+        logger.warning(
+            f"Not enough lower grade routes: {len(lower_grade_routes)}")
 
-    # Select some medium routes
-    for grade in medium_grades:
-        if grade in route_by_grade and route_by_grade[grade]:
-            selected_routes.extend(
-                route_by_grade[grade]
-                [:min(NO_OF_INTERMEDIATE_ROUTES, len(route_by_grade[grade]))])
-
-    # Select some hard routes
-    for grade in hard_grades:
-        if grade in route_by_grade and route_by_grade[grade]:
-            selected_routes.extend(
-                route_by_grade[grade]
-                [:min(NO_OF_ADVANCED_ROUTES, len(route_by_grade[grade]))])
-
-    # Make sure we have enough routes (at least MIN_ROUTE_LIMIT)
-    if len(selected_routes) < MIN_ROUTE_LIMIT:
-        # Add more routes if needed
-        remaining_routes = [r for r in routes if r not in selected_routes]
-        selected_routes.extend(
-            remaining_routes[:min(MIN_ROUTE_LIMIT -
-                                  len(selected_routes), len(remaining_routes
-                                                            ))])
+    if len(higher_grade_routes) < min_routes_per_category:
+        logger.warning(
+            f"Not enough higher grade routes: {len(higher_grade_routes)}")
 
     # Map route names to IDs for easier reference
-    route_dict = {route["name"]: route["id"] for route in selected_routes}
+    route_dict = {route["name"]: route["id"] for route in routes}
 
-    # Log the routes we'll use
-    logger.info(f"Using {len(selected_routes)} routes for mock ascents:")
-    for i, route in enumerate(selected_routes):
-        logger.info(f"{i+1}. {route['name']} ({route['grade']})"
-                    f" - Boulder: {route['boulder_name']}"
-                    f" - Sector: {route['sector_name']}")
+    # Map routes by subcategory for easier access
+    routes_by_subcategory = {
+        MarathonSubCategory.lt_6B.value:
+        [r["name"] for r in lower_grade_routes],
+        MarathonSubCategory.gte_6B.value:
+        [r["name"] for r in higher_grade_routes]
+    }
 
-    # Define which routes each climber will attempt based on skill level
+    # Log the routes we'll use by subcategory
+    logger.info(
+        f"Using {len(lower_grade_routes)} routes for 6A+ and under subcategory"
+    )
+    logger.info(
+        f"Using {len(higher_grade_routes)} routes for 6B and above subcategory"
+    )
+
+    # Define which routes each climber will attempt based on team subcategory
     climber_routes = {}
 
-    # Helper function to get route names by grade difficulty
-    def get_routes_by_difficulty(difficulty, count=MIN_ASCENTS_PER_CLIMBER):
+    # Helper function to get route names by subcategory
+    def get_routes_by_subcategory(subcategory, count=MIN_ASCENTS_PER_CLIMBER):
         count = min(count, MAX_ASCENTS_PER_CLIMBER)
-        if difficulty == "beginner":
-            routes = [
-                r["name"] for r in selected_routes if r["grade"] in easy_grades
-            ]
-            # Handle case when there aren't enough routes
-            if len(routes) < count:
-                count = len(routes)
-            return routes[:count]
-        elif difficulty == "intermediate":
-            routes = [
-                r["name"] for r in selected_routes
-                if r["grade"] in medium_grades
-            ]
-            if len(routes) < count:
-                count = len(routes)
-            return routes[:count]
-        elif difficulty == "advanced":
-            routes = [
-                r["name"] for r in selected_routes if r["grade"] in hard_grades
-            ]
-            if len(routes) < count:
-                count = len(routes)
-            return routes[:count]
-        else:  # all
-            routes = [r["name"] for r in selected_routes]
-            if len(routes) < count:
-                count = len(routes)
-            return routes[:count]
 
-    # Assign routes to climbers based on their skill level and team
-    # Using the participants fetched from the database
+        if subcategory == MarathonSubCategory.lt_6B.value:
+            routes = routes_by_subcategory[MarathonSubCategory.lt_6B.value]
+        elif subcategory == MarathonSubCategory.gte_6B.value:
+            routes = routes_by_subcategory[MarathonSubCategory.gte_6B.value]
+        else:  # Solo climbers can climb any route
+            routes = routes_by_subcategory[
+                MarathonSubCategory.lt_6B.value] + routes_by_subcategory[
+                    MarathonSubCategory.gte_6B.value]
 
-    # Rock Stars team - advanced climbers
-    for member in participants_by_team["Rock Stars"]:
-        advanced_routes = get_routes_by_difficulty("advanced", 5)
-        intermediate_routes = get_routes_by_difficulty("intermediate", 4)
-        easy_routes = get_routes_by_difficulty("beginner", 3)
-        climber_routes[
-            member] = advanced_routes + intermediate_routes + easy_routes
+        # Handle case when there aren't enough routes
+        if len(routes) < count:
+            count = len(routes)
 
-    # Boulderers team - intermediate climbers
-    for member in participants_by_team["Boulderers"]:
-        advanced_routes = get_routes_by_difficulty("advanced", 2)
-        intermediate_routes = get_routes_by_difficulty("intermediate", 6)
-        easy_routes = get_routes_by_difficulty("beginner", 4)
-        climber_routes[
-            member] = intermediate_routes + easy_routes + advanced_routes
+        # Return a random selection to ensure variety
+        import random
+        return random.sample(routes, count)
 
-    # Flash Force team - mixed skill levels
-    for i, member in enumerate(participants_by_team["Flash Force"]):
-        if i == 0:  # First member - advanced
-            climber_routes[member] = get_routes_by_difficulty(
-                "advanced", 6) + get_routes_by_difficulty("intermediate", 3)
-        elif i == 1:  # Second member - intermediate
-            climber_routes[member] = get_routes_by_difficulty(
-                "intermediate", 7) + get_routes_by_difficulty("beginner", 3)
-        else:  # Others - beginners
-            climber_routes[member] = get_routes_by_difficulty(
-                "beginner", 8) + get_routes_by_difficulty("intermediate", 2)
-
-    # Ramblers team - mixed skill levels with focus on easier routes
-    for member in participants_by_team["Ramblers"]:
-        # Add a distinguishing factor for each member based on name
-        if "Thomas" in member:
-            # Thomas is a beginner
-            climber_routes[member] = get_routes_by_difficulty("beginner", 10)
-        elif "Rebecca" in member:
-            # Rebecca likes a variety of routes
-            climber_routes[member] = get_routes_by_difficulty(
-                "beginner", 4) + get_routes_by_difficulty("intermediate", 6)
-        elif "Lucas" in member:
-            # Lucas attempts some harder routes
-            climber_routes[member] = get_routes_by_difficulty(
-                "beginner", 3) + get_routes_by_difficulty(
-                    "intermediate", 3) + get_routes_by_difficulty(
-                        "advanced", 3)
+    # Assign routes to climbers based on their team's subcategory
+    for team_name, members in participants_by_team.items():
+        if team_name == "Solo":
+            # Solo participants get a mix of routes
+            for member in members:
+                route_count = random.randint(MIN_ASCENTS_PER_CLIMBER,
+                                             MAX_ASCENTS_PER_CLIMBER)
+                climber_routes[member] = get_routes_by_subcategory(
+                    None, route_count)
         else:
-            # Other members with mixed routes
-            climber_routes[member] = get_routes_by_difficulty(
-                "beginner", 5) + get_routes_by_difficulty("intermediate", 5)
+            # Team participants get routes based on their subcategory
+            subcategory = team_subcategories.get(team_name)
 
-    # The Climbers team - mix of difficulties focusing on intermediate routes
-    if "The Climbers" in participants_by_team:
-        for i, member in enumerate(participants_by_team["The Climbers"]):
-            if "Jessica" in member:
-                # Jessica is an experienced climber
-                climber_routes[member] = get_routes_by_difficulty(
-                    "advanced", 4) + get_routes_by_difficulty(
-                        "intermediate", 5) + get_routes_by_difficulty(
-                            "beginner", 2)
-            elif "Alex" in member:
-                # Alex prefers technical routes
-                climber_routes[member] = get_routes_by_difficulty(
-                    "intermediate", 7) + get_routes_by_difficulty(
-                        "advanced", 3) + get_routes_by_difficulty(
-                            "beginner", 2)
-            elif "Sarah" in member:
-                # Sarah is a well-rounded climber
-                climber_routes[member] = get_routes_by_difficulty(
-                    "intermediate", 6) + get_routes_by_difficulty(
-                        "beginner", 3) + get_routes_by_difficulty(
-                            "advanced", 2)
+            if subcategory:
+                for member in members:
+                    # Vary the number of ascents per climber for more realism
+                    route_count = random.randint(MIN_ASCENTS_PER_CLIMBER,
+                                                 MAX_ASCENTS_PER_CLIMBER)
+                    climber_routes[member] = get_routes_by_subcategory(
+                        subcategory, route_count)
             else:
-                # Default mix for other team members
-                climber_routes[member] = get_routes_by_difficulty(
-                    "intermediate", 5) + get_routes_by_difficulty(
-                        "beginner", 4) + get_routes_by_difficulty(
-                            "advanced", 3)
-
-    # Solo participants - various skills
-    if "Solo" in participants_by_team:
-        for i, member in enumerate(participants_by_team["Solo"]):
-            if i % 3 == 0:  # Every 3rd solo participant
-                climber_routes[member] = get_routes_by_difficulty(
-                    "intermediate", 7) + get_routes_by_difficulty(
-                        "beginner", 5)
-            elif i % 3 == 1:  # Every 3rd+1 solo participant
-                climber_routes[member] = get_routes_by_difficulty(
-                    "advanced", 6) + get_routes_by_difficulty(
-                        "intermediate", 4)
-            else:  # Every 3rd+2 solo participant
-                climber_routes[member] = get_routes_by_difficulty(
-                    "advanced", 3) + get_routes_by_difficulty(
-                        "intermediate", 5) + get_routes_by_difficulty(
-                            "beginner", 4)
+                logger.warning(
+                    f"Team {team_name} has no subcategory, skipping route "
+                    "assignment")
 
     # Create ascent objects based on the mapped routes
     all_ascents = []

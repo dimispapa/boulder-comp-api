@@ -11,8 +11,8 @@ import pandas as pd
 from sqlmodel import Session
 
 from utils.loggers import logger
-from database.crud.competitions import get_competition_by_id
-from database.models.competitions import Competition
+from database.crud.competitions import get_competition_by_id, get_team_by_id
+from database.models.competitions import Competition, MarathonSubCategory
 from scoring.data_storage import store_results
 
 
@@ -392,13 +392,53 @@ class ScoreCalculator:
         teams = team_ascents_df[["team_id",
                                  "team_name"]].dropna().drop_duplicates()
 
+        # Create a mapping of team_id to subcategory
+        team_subcategories = {}
+        for _, team_row in teams.iterrows():
+            team_id = team_row["team_id"]
+            # Get team from database to determine subcategory
+            team = get_team_by_id(self.session, team_id)
+            if team:
+                team_subcategories[team_id] = team.marathon_subcategory
+
         # Iterate through all teams
         for _, team_row in teams.iterrows():
             team_id = team_row["team_id"]
             team_name = team_row["team_name"]
+            subcategory = team_subcategories.get(team_id)
 
             # Filter ascents for this team
             team_df = team_ascents_df[team_ascents_df["team_id"] == team_id]
+
+            # Filter out ascents that don't match the team's subcategory
+            if subcategory:
+                # Create mask of valid ascents for subcategory
+                valid_ascents_mask = team_df.apply(
+                    lambda row: self._is_route_valid_for_subcategory(
+                        row["grade"], subcategory),
+                    axis=1)
+
+                # Apply filter
+                filtered_team_df = team_df[valid_ascents_mask]
+
+                # Log how many ascents were filtered out
+                filtered_out = len(team_df) - len(filtered_team_df)
+                if filtered_out > 0:
+                    logger.info(
+                        f"Team {team_name} ({subcategory.value}): "
+                        f"Filtered out {filtered_out} ascents that don't "
+                        f"match subcategory")
+
+                # Use filtered DataFrame for scoring
+                team_df = filtered_team_df
+
+            # Skip if no valid ascents remain
+            if len(team_df) == 0:
+                logger.warning(
+                    f"Team {team_name} has no valid ascents for "
+                    f"subcategory {subcategory.value if subcategory else None}"
+                )
+                continue
 
             # Calculate team size
             team_size = team_df["participant_id"].nunique()
@@ -492,6 +532,8 @@ class ScoreCalculator:
                 "master_grade_bonus": master_grade_bonus,
                 "total_score": total_score,
                 "normalized_score": normalized_score,
+                "marathon_subcategory":
+                subcategory.value if subcategory else None,
                 "ranking": None  # Will be set after sorting
             }
 
@@ -512,26 +554,57 @@ class ScoreCalculator:
                 "unique_ascent_bonus": unique_ascent_bonus,
                 "total_score": total_score,
                 "normalized_score": normalized_score,
+                "marathon_subcategory":
+                subcategory.value if subcategory else None,
                 "ranking": None  # Add ranking field, to be set after sorting
             }
 
             team_scores.append(team_score)
             detailed_calculations.append(detailed_calculation)
 
-        # Sort teams by normalized score and assign rankings
-        sorted_scores = sorted(team_scores,
-                               key=lambda x: x["normalized_score"],
-                               reverse=True)
-        for i, team in enumerate(sorted_scores):
-            team["ranking"] = i + 1
-            # Find and update the corresponding detailed calculation ranking
-            for calc in detailed_calculations:
-                if calc["team_id"] == team["team_id"]:
-                    calc["ranking"] = i + 1
+        # Group teams by subcategory
+        subcategory_teams = {
+            # Using the enum member names as keys
+            MarathonSubCategory.lt_6B.name: [],
+            MarathonSubCategory.gte_6B.name: [],
+            None: []  # For teams without subcategory
+        }
+
+        for team in team_scores:
+            subcategory = team.get("marathon_subcategory")
+            # Use the enum values directly for comparison
+            if subcategory == MarathonSubCategory.lt_6B.value:
+                subcategory_teams[MarathonSubCategory.lt_6B.name].append(team)
+            elif subcategory == MarathonSubCategory.gte_6B.value:
+                subcategory_teams[MarathonSubCategory.gte_6B.name].append(team)
+            else:
+                subcategory_teams[None].append(team)
+
+        # Sort and rank teams within each subcategory
+        ranked_teams = []
+
+        for subcategory, teams in subcategory_teams.items():
+            if not teams:
+                continue
+
+            # Sort teams by normalized score
+            sorted_teams = sorted(teams,
+                                  key=lambda x: x["normalized_score"],
+                                  reverse=True)
+
+            # Assign rankings within subcategory
+            for i, team in enumerate(sorted_teams):
+                team["ranking"] = i + 1
+                ranked_teams.append(team)
+
+                # Update the corresponding detailed calculation
+                for calc in detailed_calculations:
+                    if calc["team_id"] == team["team_id"]:
+                        calc["ranking"] = i + 1
 
         logger.info("Completed Marathon score calculation for "
                     f"{len(team_scores)} teams")
-        return sorted_scores, detailed_calculations
+        return ranked_teams, detailed_calculations
 
     async def _calculate_boulder_beasts_scores(self) -> List[Dict[str, Any]]:
         """
@@ -610,3 +683,32 @@ class ScoreCalculator:
         logger.info(f"Completed Boulder Beasts score calculation for "
                     f"{len(participant_scores)} participants")
         return sorted_scores
+
+    async def _is_route_valid_for_subcategory(
+            self, grade: str,
+            subcategory: Optional[MarathonSubCategory]) -> bool:
+        """
+        Check if a route grade is valid for a given subcategory.
+
+        Args:
+            grade (str): The grade of the route
+            subcategory (MarathonSubCategory): The team's subcategory
+
+        Returns:
+            bool: True if valid, False if not
+        """
+        if subcategory is None:
+            # If no subcategory defined, all routes are valid
+            return True
+
+        # Check if grade matches subcategory requirements
+        if subcategory == MarathonSubCategory.lt_6B:
+            # For "6A+ and under" subcategory, grade should be <= 6A+
+            return grade <= "6A+"
+        elif subcategory == MarathonSubCategory.gte_6B:
+            # For "6B and above" subcategory, grade should be >= 6B
+            return grade >= "6B"
+
+        # Default case - should not reach here
+        logger.warning(f"Unknown subcategory: {subcategory}")
+        return True

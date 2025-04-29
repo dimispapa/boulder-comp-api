@@ -1,14 +1,15 @@
 """
 SQLModel models related to scoring configuration and results.
 """
-from sqlmodel import SQLModel, Field
+from sqlmodel import SQLModel, Field, Relationship
 from typing import Optional, List, TYPE_CHECKING
 from datetime import datetime, UTC
 from uuid import UUID, uuid4
 from sqlalchemy import String
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
-from sqlmodel import Relationship
 import json
+
+from database.models.enums import MarathonSubCategory
 
 # Import Competition only for type checking
 if TYPE_CHECKING:
@@ -105,6 +106,7 @@ class MarathonRanking(SQLModel, table=True):
     total_score: float
     normalized_score: float
     rank: int
+    marathon_subcategory: Optional[MarathonSubCategory] = Field(default=None)
     inserted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
@@ -136,6 +138,7 @@ class MarathonDetailedResults(SQLModel, table=True):
     total_score: float
     normalized_score: float
     rank: int
+    marathon_subcategory: Optional[MarathonSubCategory] = Field(default=None)
     inserted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 

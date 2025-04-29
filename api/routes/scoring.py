@@ -13,6 +13,7 @@ from database.crud.competitions import (get_competition_by_id,
                                         get_all_competitions)
 from utils.loggers import logger
 from tasks.scoring_tasks import calculate_scores
+from database.models.competitions import MarathonSubCategory
 
 # Load environment variables
 load_dotenv()
@@ -114,6 +115,7 @@ async def get_calculation_status(task_id: str):
 @router.get("/rankings/{comp_id}")
 async def get_competition_rankings(comp_id: str,
                                    category: Optional[str] = None,
+                                   subcategory: Optional[str] = None,
                                    session: Session = Depends(get_db)):
     """
     Get the latest rankings for a competition.
@@ -122,6 +124,8 @@ async def get_competition_rankings(comp_id: str,
         comp_id (str): ID of the competition
         category (str, optional): Filter by category
         ("marathon" or "boulder_beasts")
+        subcategory (str, optional): Filter by marathon subcategory
+        ("lt_6B" or "gte_6B")
         session (Session): Database session
 
     Returns:
@@ -129,7 +133,7 @@ async def get_competition_rankings(comp_id: str,
     """
     try:
         logger.info(f"Fetching rankings for competition {comp_id}, "
-                    f"category: {category}")
+                    f"category: {category}, subcategory: {subcategory}")
 
         # Get competition
         comp = get_competition_by_id(session, comp_id)
@@ -150,6 +154,18 @@ async def get_competition_rankings(comp_id: str,
                                 detail=f"Category {category} not enabled for "
                                 f"this competition")
 
+        # Validate subcategory if specified
+        if subcategory:
+            try:
+                # Use the enum to validate
+                # this will raise ValueError if not valid
+                MarathonSubCategory[subcategory]
+            except (KeyError, ValueError):
+                logger.error(f"Invalid subcategory: {subcategory}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid subcategory: {subcategory}")
+
         if category:
             if category == "marathon":
                 # Get marathon rankings
@@ -169,25 +185,61 @@ async def get_competition_rankings(comp_id: str,
                         detail=f"No marathon rankings found for "
                         f"competition {comp_id}")
 
-                # Convert to dictionary format
-                rankings_data = []
+                # Filter by subcategory if specified
+                if subcategory:
+                    # Get the actual display value from the enum
+                    display_subcategory = MarathonSubCategory[
+                        subcategory].value
+                    rankings = [
+                        r for r in rankings
+                        if r.marathon_subcategory == display_subcategory
+                    ]
+
+                # Group by subcategory using enum keys
+                subcategory_rankings = {
+                    key: []
+                    for key in MarathonSubCategory.__members__
+                }
+
+                # Convert to dictionary format and group by subcategory
                 for rank in rankings:
-                    rankings_data.append({
+                    rank_data = {
                         "id": str(rank.id),
                         "team_id": str(rank.team_id),
                         "base_score": rank.base_score,
-                        "volume_score": rank.volume_score,
-                        "unique_ascent_score": rank.unique_ascent_score,
+                        "volume_bonus": rank.volume_bonus,
+                        "unique_ascent_bonus": rank.unique_ascent_bonus,
                         "team_ascent_bonus": rank.team_ascent_bonus,
                         "master_grade_bonus": rank.master_grade_bonus,
                         "total_score": rank.total_score,
                         "normalized_score": rank.normalized_score,
-                        "rank": rank.rank
-                    })
+                        "rank": rank.rank,
+                        "subcategory": rank.marathon_subcategory
+                    }
+
+                    # Find the enum key from its value
+                    subcategory_key = None
+                    for key, value in MarathonSubCategory.__members__.items():
+                        if value.value == rank.marathon_subcategory:
+                            subcategory_key = key
+                            break
+
+                    if subcategory_key:
+                        subcategory_rankings[subcategory_key].append(rank_data)
+
+                # If subcategory filter applied, only return that subcategory
+                if subcategory:
+                    logger.info(
+                        f"Returning {subcategory} marathon rankings for "
+                        f"competition {comp_id}")
+                    return {
+                        "status": "success",
+                        "rankings": subcategory_rankings[subcategory]
+                    }
 
                 logger.info(
                     f"Returning marathon rankings for competition {comp_id}")
-                return {"status": "success", "rankings": rankings_data}
+                return {"status": "success", "rankings": subcategory_rankings}
 
             elif category == "boulder_beasts":
                 # Get boulder beasts rankings
@@ -259,8 +311,8 @@ async def get_competition_rankings(comp_id: str,
                     "id": str(rank.id),
                     "team_id": str(rank.team_id),
                     "base_score": rank.base_score,
-                    "volume_score": rank.volume_score,
-                    "unique_ascent_score": rank.unique_ascent_score,
+                    "volume_bonus": rank.volume_bonus,
+                    "unique_ascent_bonus": rank.unique_ascent_bonus,
                     "team_ascent_bonus": rank.team_ascent_bonus,
                     "master_grade_bonus": rank.master_grade_bonus,
                     "total_score": rank.total_score,
@@ -329,8 +381,7 @@ async def list_competitions(session: Session = Depends(get_db)):
                 comp.name,
                 "display_name":
                 comp.display_name,
-                "categories":
-                [cat.category_type for cat in comp.categories],
+                "categories": [cat.category_type for cat in comp.categories],
                 "start_date":
                 comp.start_date.isoformat(),
                 "end_date":

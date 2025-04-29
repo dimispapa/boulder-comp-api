@@ -1,18 +1,16 @@
+"""
+SQLModel models related to user accounts.
+"""
 from sqlmodel import SQLModel, Field, Relationship
-from enum import Enum
-from datetime import datetime
 from typing import Optional, List, TYPE_CHECKING
+from datetime import datetime, UTC
 from uuid import UUID, uuid4
-from datetime import UTC
 
+from database.models.enums import UserRole
+
+# Type hints for forward references
 if TYPE_CHECKING:
     from database.models.competitions import Participant
-
-
-class UserRole(str, Enum):
-    user = "user"
-    admin = "admin"
-    moderator = "moderator"
 
 
 # Base User model used for database table definition - NO password fields

@@ -33,9 +33,9 @@ class MarathonScoreComponents(BaseModel):
     """
     base_score: float = Field(...,
                               description="Base score from completed ascents")
-    volume_score: float = Field(..., description="Bonus for volume of ascents")
-    unique_ascent_score: float = Field(...,
-                                       description="Score from unique ascents")
+    volume_bonus: float = Field(..., description="Bonus for volume of ascents")
+    unique_ascent_bonus: float = Field(...,
+                                       description="Bonus from unique ascents")
     team_ascent_bonus: float = Field(
         ..., description="Bonus for team route completions")
     master_grade_bonus: float = Field(

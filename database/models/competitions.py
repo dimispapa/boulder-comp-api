@@ -6,10 +6,11 @@ from sqlalchemy import Column, Computed
 from typing import Optional, List, TYPE_CHECKING
 from datetime import datetime, UTC
 from uuid import UUID, uuid4
-from enum import Enum
 from sqlalchemy import Boolean, event, DDL
 import os
 
+from database.models.enums import (CompetitionStatus, CategoryType,
+                                   MarathonSubCategory)
 from database.models.scoring import (BasePoints, VolumeBonus,
                                      UniqueAscentBonus, TeamAscentBonus,
                                      MasterGradeBonus)
@@ -24,19 +25,6 @@ if TYPE_CHECKING:
     from database.models.accounts import User
 
 
-class CompetitionStatus(str, Enum):
-    """Competition status enum."""
-    upcoming = "upcoming"
-    ongoing = "ongoing"
-    completed = "completed"
-
-
-class CategoryType(str, Enum):
-    """Competition category type enum."""
-    marathon = "marathon"
-    boulder_beasts = "boulder_beasts"
-
-
 class Competition(SQLModel, table=True):
     """Climbing competition model."""
     __tablename__ = "competitions"
@@ -47,7 +35,7 @@ class Competition(SQLModel, table=True):
     crag_id: UUID = Field(foreign_key="crags.id")
     start_date: datetime
     end_date: datetime
-    status: str = Field(default=CompetitionStatus.ongoing.value)
+    status: str = Field(default=CompetitionStatus.ongoing)
     description: Optional[str] = None
     venue: Optional[str] = None
     inserted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -115,7 +103,7 @@ class Team(SQLModel, table=True):
     competition_id: UUID = Field(foreign_key="competitions.id",
                                  ondelete="SET NULL",
                                  nullable=True)
-
+    marathon_subcategory: Optional[MarathonSubCategory] = Field(default=None)
     inserted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
@@ -128,6 +116,9 @@ class Team(SQLModel, table=True):
 class Participant(SQLModel, table=True):
     """Participant in a competition."""
     __tablename__ = "participants"
+    __table_args__ = (UniqueConstraint('user_id',
+                                       'competition_id',
+                                       name='unique_participant'), )
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     competition_id: UUID = Field(foreign_key="competitions.id",
@@ -168,6 +159,7 @@ class Ascent(SQLModel, table=True):
     participant_id: UUID = Field(foreign_key="participants.id")
     route_id: UUID = Field(foreign_key="routes.id")
     team_id: Optional[UUID] = Field(default=None, foreign_key="teams.id")
+    status: bool = Field(default=True)
     inserted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Relationships

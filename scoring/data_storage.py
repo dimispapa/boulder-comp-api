@@ -81,6 +81,7 @@ async def store_results(session: Session,
                             convert_to_python_type(score["total_score"])),
                         normalized_score=float(
                             convert_to_python_type(score["normalized_score"])),
+                        marathon_subcategory=score.get("marathon_subcategory"),
                         rank=int(convert_to_python_type(score["ranking"])))
 
                     # Store in database
@@ -151,8 +152,11 @@ async def store_results(session: Session,
                             normalized_score=float(
                                 convert_to_python_type(
                                     calculation["normalized_score"])),
-                            rank=int(convert_to_python_type(
-                                calculation["ranking"])))
+                            marathon_subcategory=calculation.get(
+                                "marathon_subcategory"),
+                            rank=int(
+                                convert_to_python_type(
+                                    calculation["ranking"])))
 
                         # Store in database
                         create_or_update_marathon_detailed_results(

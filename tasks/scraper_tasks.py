@@ -210,17 +210,13 @@ def save_crag_to_json(crag: Crag, file_path: Path) -> dict:
                     route.url,
                     "grade":
                     route.grade,
-                    "difficulty":
-                    route.difficulty,
-                    "quality":
-                    route.quality,
-                    "fa":
-                    route.fa,
+                    "rating":
+                    route.rating,
+                    "description":
+                    route.description,
                     "line_data": [{
                         "photo_id": line.photo_id,
-                        "anchor_points": line.anchor_points,
-                        "stroke_color": line.stroke_color,
-                        "stroke_width": line.stroke_width
+                        "line_points": line.line_points
                     } for line in route.line_data]
                 } for route in boulder.routes]
             } for boulder in crag.boulders]
@@ -326,18 +322,15 @@ def store_crag_data_task(self, file_path: str):
                               display_name=route_data.get('display_name', ''),
                               url=route_data.get('url', ''),
                               grade=route_data.get('grade', ''),
-                              difficulty=route_data.get('difficulty', 0),
-                              quality=route_data.get('quality', 0),
-                              fa=route_data.get('fa', ''),
+                              rating=route_data.get('rating', 0.0),
+                              description=route_data.get('description', ''),
                               line_data=[])
 
                 # Add route line data
                 for line_data in route_data.get('line_data', []):
                     line = RouteLineData(
                         photo_id=line_data.get('photo_id', ''),
-                        anchor_points=line_data.get('anchor_points', []),
-                        stroke_color=line_data.get('stroke_color', ''),
-                        stroke_width=line_data.get('stroke_width', 0))
+                        line_points=line_data.get('line_points', []))
                     route.line_data.append(line)
 
                 boulder.routes.append(route)
