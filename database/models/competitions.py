@@ -80,6 +80,24 @@ class CompetitionCategory(SQLModel, table=True):
     competition: Competition = Relationship(back_populates="categories")
 
 
+class CompetitionBoulder(SQLModel, table=True):
+    """Association model to link competitions with allowed boulders."""
+    __tablename__ = "competition_boulders"
+    __table_args__ = (UniqueConstraint('competition_id',
+                                       'boulder_id',
+                                       name='unique_competition_boulder'), )
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    competition_id: UUID = Field(foreign_key="competitions.id",
+                                 ondelete="CASCADE")
+    boulder_id: UUID = Field(foreign_key="boulders.id", ondelete="CASCADE")
+    boulder_name: str = Field(default=None)
+    sector_name: str = Field(default=None)
+    is_active: bool = Field(default=True)
+    inserted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class Team(SQLModel, table=True):
     """Team model for team-based competitions."""
     __tablename__ = "teams"
@@ -137,6 +155,7 @@ class Participant(SQLModel, table=True):
         Boolean,
         Computed("team_id IS NULL OR team_is_valid IS NOT TRUE",
                  persisted=True)))
+    signed_waiver: bool = Field(default=False)
     inserted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 

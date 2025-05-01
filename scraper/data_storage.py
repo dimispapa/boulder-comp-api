@@ -155,7 +155,7 @@ def store_crag_data(crag: ScraperCrag, session: Session) -> dict:
 
             for route in boulder.routes:
                 # Format route name from display name
-                route_display_name = route.name
+                route_display_name = route.display_name
                 route_name = format_name(route_display_name)
 
                 # First insert the route

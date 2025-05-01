@@ -1,7 +1,7 @@
 """
 Database initialization for mock competition data.
 """
-from datetime import datetime, timedelta
+from datetime import datetime
 from sqlmodel import Session, select
 import bcrypt
 import os
@@ -13,8 +13,13 @@ from database.models.enums import (CompetitionStatus, CategoryType,
 from database.models.competitions import (Competition, CompetitionCategory,
                                           Team, Participant, Ascent,
                                           CompVoucher)
-from database.models.crags import Crag, Route
+from database.models.crags import Route
 from database.models.accounts import User
+from database.management.init_default_comp import (
+    DEFAULT_COMP_NAME, DEFAULT_COMP_DISPLAY_NAME, DEFAULT_COMP_START_DATE,
+    DEFAULT_COMP_END_DATE, DEFAULT_CRAG_NAME, import_scoring_config,
+    import_competition_boulders)
+from database.crud.crags import get_crag_by_name
 
 
 # Debug function to verify participant is_solo status
@@ -51,11 +56,11 @@ def debug_participants_is_solo(session: Session, comp_id, label=""):
     logger.info("-----------------------------------")
 
 
-# Constants
-MOCK_COMP_NAME = "mock_comp_2025"
-MOCK_COMP_DISPLAY_NAME = "Mock Comp 2025"
-MOCK_COMP_START_DATE = datetime.now().date() - timedelta(days=7)
-MOCK_COMP_END_DATE = datetime.now().date() + timedelta(days=7)
+# Constants - Use the defaults from init_default_comp.py
+MOCK_COMP_NAME = DEFAULT_COMP_NAME
+MOCK_COMP_DISPLAY_NAME = DEFAULT_COMP_DISPLAY_NAME
+MOCK_COMP_START_DATE = DEFAULT_COMP_START_DATE.date()
+MOCK_COMP_END_DATE = DEFAULT_COMP_END_DATE.date()
 MAX_ROUTE_LIMIT = 200
 MIN_ROUTE_LIMIT = 50
 NO_OF_BEGINNER_ROUTES = 100
@@ -101,39 +106,44 @@ def import_mock_competitions(session: Session):
         logger.info("Competitions already exist in database, skipping import")
         return
 
-    # Get a crag to associate with the competition
-    crag = session.exec(select(Crag).limit(1)).first()
+    # Get the crag to associate with the competition
+    crag = get_crag_by_name(session, DEFAULT_CRAG_NAME)
     if not crag:
-        logger.error("No crags found in database. Cannot create competitions.")
+        logger.error(f"Crag '{DEFAULT_CRAG_NAME}' not found in database. "
+                     "Cannot create competition.")
         return
 
-    # Create a mock competition
+    # Create a mock competition using default values
     comp = Competition(
         name=MOCK_COMP_NAME,
         display_name=MOCK_COMP_DISPLAY_NAME,
         crag_id=crag.id,
         start_date=MOCK_COMP_START_DATE,
         end_date=MOCK_COMP_END_DATE,
-        status=CompetitionStatus.ongoing,
-        description="An exciting bouldering competition at our favorite crag!",
-        venue="Outdoor Bouldering Area")
+        status=CompetitionStatus.ongoing,  # Set as ongoing for mock data
+        description="Join us for the annual Spring Bouldering Festival "
+        "at Inia-Droushia! "
+        "Compete in team or solo categories and test your skills on Cyprus's "
+        "finest sandstone boulders.",
+        venue="Inia-Droushia Bouldering Area")
 
     session.add(comp)
     # Flush to get the competition ID
     session.flush()
 
-    # Add categories for the competition
+    # Add categories for the competition using default names but
+    # with marathon/boulder_beasts types
     marathon_category = CompetitionCategory(
         competition_id=comp.id,
         category_type=CategoryType.marathon,
-        name="Marathon",
+        name="Climbathon",
         description="Team-based endurance climbing competition",
         display_order=1)
 
     boulder_beasts_category = CompetitionCategory(
         competition_id=comp.id,
         category_type=CategoryType.boulder_beasts,
-        name="Boulder Beasts",
+        name="Boulder Titans",
         description="Individual bouldering category awarding top "
         "5 hard ascents",
         display_order=2)
@@ -144,6 +154,11 @@ def import_mock_competitions(session: Session):
     # Commit to save the competition and categories
     session.commit()
     logger.info(f"Created mock competition: {comp.display_name}")
+
+    # Import competition boulders using the function from init_default_comp.py
+    import_competition_boulders(session, comp.id)
+
+    return comp
 
 
 def import_mock_teams(session: Session):
@@ -1051,110 +1066,9 @@ def import_mock_ascents(session: Session):
     logger.info(f"Created {len(all_ascents)} mock ascents using real routes")
 
 
-def import_mock_scoring_config(session: Session):
-    """Import scoring configuration for the mock competition."""
-    from database.models.scoring import (BasePoints, VolumeBonus,
-                                         UniqueAscentBonus, TeamAscentBonus,
-                                         MasterGradeBonus)
-
-    # Get the competition
-    comp = session.exec(
-        select(Competition).where(Competition.name == MOCK_COMP_NAME)).first()
-    if not comp:
-        logger.error(
-            "Mock competition not found. Cannot create scoring config.")
-        return
-
-    # Check if scoring config already exists for this competition
-    existing_config = session.exec(
-        select(BasePoints).where(
-            BasePoints.competition_id == comp.id)).first()
-    if existing_config:
-        logger.info(
-            "Scoring configuration already exists for this competition,"
-            " skipping import")
-        return
-
-    # Get global/default base points to copy values
-    global_base_points = session.exec(
-        select(BasePoints).where(BasePoints.competition_id.is_(None))).all()
-
-    # Create competition-specific base points
-    comp_base_points = []
-    for bp in global_base_points:
-        comp_bp = BasePoints(competition_id=comp.id,
-                             grade=bp.grade,
-                             points=bp.points,
-                             increment_factor=bp.increment_factor)
-        comp_base_points.append(comp_bp)
-
-    if comp_base_points:
-        session.add_all(comp_base_points)
-        session.commit()
-        logger.info(f"Created {len(comp_base_points)} base points configs for "
-                    f"competition {comp.name}")
-
-    # Get global/default volume bonus
-    global_volume_bonus = session.exec(
-        select(VolumeBonus).where(VolumeBonus.competition_id.is_(None))).all()
-
-    # Create competition-specific volume bonus
-    for vb in global_volume_bonus:
-        comp_vb = VolumeBonus(competition_id=comp.id,
-                              bonus_increment=vb.bonus_increment,
-                              points_per_increment=vb.points_per_increment)
-        session.add(comp_vb)
-
-    # Get global/default unique ascent bonus
-    global_unique_bonus = session.exec(
-        select(UniqueAscentBonus).where(
-            UniqueAscentBonus.competition_id.is_(None))).all()
-
-    # Create competition-specific unique ascent bonus
-    for ub in global_unique_bonus:
-        comp_ub = UniqueAscentBonus(competition_id=comp.id,
-                                    bonus_factor=ub.bonus_factor)
-        session.add(comp_ub)
-
-    # Get global team ascent bonus
-    global_team_bonus = session.exec(
-        select(TeamAscentBonus).where(
-            TeamAscentBonus.competition_id.is_(None))).all()
-
-    # Create competition-specific team ascent bonus
-    comp_team_bonuses = []
-    for tb in global_team_bonus:
-        comp_tb = TeamAscentBonus(competition_id=comp.id,
-                                  team_size=tb.team_size,
-                                  bonus_factor=tb.bonus_factor)
-        comp_team_bonuses.append(comp_tb)
-
-    if comp_team_bonuses:
-        session.add_all(comp_team_bonuses)
-        session.commit()
-        logger.info(
-            f"Created {len(comp_team_bonuses)} team ascent bonus configs for "
-            f"competition {comp.name}")
-
-    # Get global master grade bonus
-    global_master_bonus = session.exec(
-        select(MasterGradeBonus).where(
-            MasterGradeBonus.competition_id.is_(None))).all()
-
-    # Create competition-specific master grade bonus
-    for mb in global_master_bonus:
-        comp_mb = MasterGradeBonus(competition_id=comp.id,
-                                   bonus_factor=mb.bonus_factor)
-        session.add(comp_mb)
-
-    session.commit()
-    logger.info(
-        f"Created all scoring configurations for competition {comp.name}")
-
-
 def initialize_mock_competition_data(session: Session):
     """Initialize the database with mock competition data."""
-    import_mock_competitions(session)
+    comp = import_mock_competitions(session)
     import_mock_users(session)
     import_mock_comp_vouchers(session)
 
@@ -1166,7 +1080,10 @@ def initialize_mock_competition_data(session: Session):
         session)  # Create the rest of the participants
 
     import_mock_ascents(session)
-    import_mock_scoring_config(session)
+
+    # Use the scoring config function from init_default_comp.py
+    if comp:
+        import_scoring_config(session, comp.id)
 
     # Final check after everything is done
     comp = session.exec(

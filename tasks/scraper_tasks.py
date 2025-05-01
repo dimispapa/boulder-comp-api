@@ -380,8 +380,7 @@ def upload_boulder_photos_task(self, crag_name: str):
                 self.update_state(state='PROGRESS', meta=info)
 
             # Upload photos with progress tracking
-            result = uploader.upload_photos_for_crag(
-                crag_name, progress_callback=update_progress)
+            result = uploader.upload_photos_for_crag(crag_name)
 
             logger.info(f"Photo upload complete for crag: {crag_name}")
             logger.info(f"Total: {result.get('total', 0)}, "

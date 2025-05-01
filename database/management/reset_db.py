@@ -23,11 +23,23 @@ if __name__ == "__main__":
     parser.add_argument("--mock-comp",
                         action="store_true",
                         help="Create mock competition data")
+    # Argument to create default competition (for production)
+    parser.add_argument(
+        "--default-comp",
+        action="store_true",
+        help="Create default Spring Bouldering Festival competition "
+        "(for production)")
     # Argument to skip boulder/route data import
     parser.add_argument("--skip-boulder-import",
                         action="store_true",
                         help="Skip importing boulder and route data")
     args = parser.parse_args()
+
+    # Validate arguments - can't have both mock and default competition
+    if args.mock_comp and args.default_comp:
+        logger.error(
+            "Cannot specify both --mock-comp and --default-comp. Choose one.")
+        sys.exit(1)
 
     # Ask for confirmation if not --force argument
     if not args.force:
@@ -60,15 +72,15 @@ if __name__ == "__main__":
                 logger.warning("Failed to re-upload boulder photos.")
         else:
             logger.warning("Failed to import boulder and route data.")
-            if args.mock_comp:
+            if args.mock_comp or args.default_comp:
                 response = input(
-                    "Do you want to continue with mock competition data? "
+                    "Do you want to continue with competition data import? "
                     "(y/n): ")
                 if response.lower() != 'y':
-                    logger.info("Mock competition data import cancelled.")
+                    logger.info("Competition data import cancelled.")
                     sys.exit(1)
 
-    # Finally, import mock competition data if requested
+    # Import mock competition data if requested
     if args.mock_comp:
         logger.info("Importing mock competition data...")
         from database.management.init_mock_comp import (
@@ -78,5 +90,17 @@ if __name__ == "__main__":
             # Import mock competition data
             initialize_mock_competition_data(session)
         logger.info("Mock competition data import complete.")
+
+    # Import default competition data if requested (for production)
+    if args.default_comp:
+        logger.info(
+            "Importing default Spring Bouldering Festival competition...")
+        from database.management.init_default_comp import (
+            initialize_default_competition)
+
+        with get_db_session() as session:
+            # Import default competition data
+            initialize_default_competition(session)
+        logger.info("Default competition data import complete.")
 
     logger.info("Database reset complete!")

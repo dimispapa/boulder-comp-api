@@ -88,6 +88,18 @@ def init_mock_competition_data():
     logger.info("Mock competition data has been initialized")
 
 
+def init_default_competition_data():
+    """
+    Initialize the database with default Spring Bouldering Festival
+    competition data. For production use.
+    """
+    from .init_default_comp import initialize_default_competition
+
+    with get_db_session() as session:
+        initialize_default_competition(session)
+    logger.info("Default competition data has been initialized")
+
+
 def get_session() -> Session:
     """Get a new database session."""
     return Session(engine)
