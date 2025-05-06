@@ -8,7 +8,7 @@ import os
 import random
 
 from utils.loggers import logger
-from database.models.enums import (CompetitionStatus, CategoryType,
+from database.models.enums import (EventStatus, CategoryType,
                                    MarathonSubCategory, UserRole)
 from database.models.competitions import (Competition, CompetitionCategory,
                                           Team, Participant, Ascent,
@@ -120,7 +120,7 @@ def import_mock_competitions(session: Session):
         crag_id=crag.id,
         start_date=MOCK_COMP_START_DATE,
         end_date=MOCK_COMP_END_DATE,
-        status=CompetitionStatus.ongoing,  # Set as ongoing for mock data
+        status=EventStatus.ongoing,  # Set as ongoing for mock data
         description="Join us for the annual Spring Bouldering Festival "
         "at Inia-Droushia! "
         "Compete in team or solo categories and test your skills on Cyprus's "

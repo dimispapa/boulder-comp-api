@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import Boolean, event, DDL
 import os
 
-from database.models.enums import (CompetitionStatus, CategoryType,
+from database.models.enums import (EventStatus, CategoryType,
                                    MarathonSubCategory)
 from database.models.scoring import (BasePoints, VolumeBonus,
                                      UniqueAscentBonus, TeamAscentBonus,
@@ -35,7 +35,7 @@ class Competition(SQLModel, table=True):
     crag_id: UUID = Field(foreign_key="crags.id")
     start_date: datetime
     end_date: datetime
-    status: str = Field(default=CompetitionStatus.ongoing)
+    status: str = Field(default=EventStatus.upcoming)
     description: Optional[str] = None
     venue: Optional[str] = None
     inserted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -201,7 +201,10 @@ class CompVoucher(SQLModel, table=True):
         name='unique_comp_voucher_email_per_competition'), )
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    email: str
+    full_name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    social_media: Optional[str] = None
     code: int = Field(unique=True)
     code_used_at: Optional[datetime] = None
     competition_id: UUID = Field(foreign_key="competitions.id",

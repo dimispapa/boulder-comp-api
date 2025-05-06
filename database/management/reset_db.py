@@ -29,6 +29,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Create default Spring Bouldering Festival competition "
         "(for production)")
+    # Argument to create default workshops (for production)
+    parser.add_argument("--default-workshops",
+                        action="store_true",
+                        help="Create default workshops from payment links data"
+                        "(for production)")
     # Argument to skip boulder/route data import
     parser.add_argument("--skip-boulder-import",
                         action="store_true",
@@ -102,5 +107,16 @@ if __name__ == "__main__":
             # Import default competition data
             initialize_default_competition(session)
         logger.info("Default competition data import complete.")
+
+    # Import default workshops data if requested (for production)
+    if args.default_workshops:
+        logger.info("Importing default workshops from payment links data...")
+        from database.management.init_default_workshops import (
+            initialize_default_workshops)
+
+        with get_db_session() as session:
+            # Import default workshop data
+            initialize_default_workshops(session)
+        logger.info("Default workshops data import complete.")
 
     logger.info("Database reset complete!")

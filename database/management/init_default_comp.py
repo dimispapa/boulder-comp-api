@@ -3,13 +3,15 @@ Database initialization for default competition data.
 """
 from sqlmodel import Session, select
 import json
+import random
 from pathlib import Path
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, UTC
+import pytz
 from utils.loggers import logger
-from database.models.enums import (CompetitionStatus, CategoryType)
+from database.models.enums import (EventStatus, CategoryType)
 from database.models.competitions import (Competition, CompetitionCategory,
-                                          CompetitionBoulder)
+                                          CompetitionBoulder, CompVoucher)
 from database.models.crags import Boulder
 from database.crud.crags import get_crag_by_name
 from database.models.scoring import (BasePoints, VolumeBonus,
@@ -17,12 +19,39 @@ from database.models.scoring import (BasePoints, VolumeBonus,
                                      MasterGradeBonus)
 
 # Constants
-DEFAULT_COMP_NAME = "spring_bouldering_festival"
-DEFAULT_COMP_DISPLAY_NAME = "Spring Bouldering Festival"
+DEFAULT_COMP_NAME = "spring_bouldering_festival_comp"
+DEFAULT_COMP_DISPLAY_NAME = "Spring Bouldering Festival - Competition"
 DEFAULT_CRAG_NAME = "inia-droushia"
-# Competition date
-DEFAULT_COMP_START_DATE = datetime(2025, 5, 17)  # May 17th 2025
-DEFAULT_COMP_END_DATE = datetime(2025, 5, 18)  # May 18th 2025
+DEFAULT_COMP_VENUE = "Inia-Droushia Bouldering Area"
+DEFAULT_COMP_DESCRIPTION = "Join us for the annual Spring Bouldering " \
+    "Festival at Inia & Droushia! " \
+    "Compete in a team or solo and test your skills while having fun on " \
+    "Cyprus's finest sandstone boulders."
+DEFAULT_CLIMBATHON_DESCRIPTION = "🏃‍♂️ The ultimate team endurance " \
+    "challenge! " \
+    "Teams work together to climb as many boulders as possible " \
+    "within the event timeframe. " \
+    "Climbathon is divided into two grade subcategories: " \
+    "6A+ and below (Only boulders graded 6A+ (V3) and lower are valid) " \
+    "and 6B and above (Only boulders graded 6B (V4) " \
+    "and higher are valid). "
+DEFAULT_BOULDER_TITANS_DESCRIPTION = "🦍 A true test of individual " \
+    "strength and skill! " \
+    "Every participant in the Climbathon is automatically entered " \
+    "into Boulder Titans. Your five hardest sends determine your ranking. " \
+    "In case of a tie, your sixth, seventh, and so on hardest climbs " \
+    "will be used to break it. " \
+    "Solo participants without a team can also enter Boulder Titans!"
+
+# Competition dates
+local_tz = pytz.timezone('Europe/Nicosia')
+DEFAULT_COMP_START_DATE = datetime(2025, 5, 17, 11, 0)
+DEFAULT_COMP_END_DATE = datetime(2025, 5, 17, 19, 0)
+# Make them timezone aware (in local timezone)
+aware_start = local_tz.localize(DEFAULT_COMP_START_DATE)
+aware_end = local_tz.localize(DEFAULT_COMP_END_DATE)
+utc_start_date = aware_start.astimezone(UTC)
+utc_end_date = aware_end.astimezone(UTC)
 
 
 def import_default_competition(session: Session):
@@ -41,18 +70,14 @@ def import_default_competition(session: Session):
         return
 
     # Create the default competition
-    comp = Competition(
-        name=DEFAULT_COMP_NAME,
-        display_name=DEFAULT_COMP_DISPLAY_NAME,
-        crag_id=crag.id,
-        start_date=DEFAULT_COMP_START_DATE,
-        end_date=DEFAULT_COMP_END_DATE,
-        status=CompetitionStatus.upcoming,
-        description="Join us for the annual Spring Bouldering Festival "
-        "at Inia-Droushia! "
-        "Compete in team or solo categories and test your skills on Cyprus's "
-        "finest sandstone boulders.",
-        venue="Inia-Droushia Bouldering Area")
+    comp = Competition(name=DEFAULT_COMP_NAME,
+                       display_name=DEFAULT_COMP_DISPLAY_NAME,
+                       crag_id=crag.id,
+                       start_date=utc_start_date,
+                       end_date=utc_end_date,
+                       status=EventStatus.upcoming,
+                       description=DEFAULT_COMP_DESCRIPTION,
+                       venue=DEFAULT_COMP_VENUE)
 
     session.add(comp)
     # Flush to get the competition ID
@@ -63,27 +88,14 @@ def import_default_competition(session: Session):
         competition_id=comp.id,
         category_type=CategoryType.marathon,
         name="Climbathon",
-        description="🏃‍♂️ The ultimate team endurance challenge! "
-        "Teams work together to climb as many boulders as possible "
-        "within the event timeframe. "
-        "Climbathon is divided into two grade subcategories: "
-        "6A+ and below (Only boulders graded 6A+ (V3) and lower are valid) "
-        "and 6B and above (Only boulders graded 6B (V4) "
-        "and higher are valid). "
-        "Each subcategory has separate rankings and awards. Strategy, "
-        "endurance, and teamwork are key!",
+        description=DEFAULT_CLIMBATHON_DESCRIPTION,
         display_order=1)
 
     boulder_titans_category = CompetitionCategory(
         competition_id=comp.id,
         category_type=CategoryType.boulder_beasts,
         name="Boulder Titans",
-        description="🦍 A true test of individual strength and skill! "
-        "Every participant in the Climbathon is automatically entered "
-        "into Boulder Titans. Your five hardest sends determine your ranking. "
-        "In case of a tie, your sixth, seventh, and so on hardest climbs "
-        "will be used to break it. "
-        "Solo participants without a team can also enter Boulder Titans!",
+        description=DEFAULT_BOULDER_TITANS_DESCRIPTION,
         display_order=2)
 
     session.add(climbathon_category)
@@ -264,8 +276,176 @@ def import_scoring_config(session: Session, comp_id: str):
         f"Created all scoring configurations for competition {comp.name}")
 
 
+def import_comp_vouchers(session: Session, competition_id: UUID):
+    """Import competition vouchers with hardcoded member data."""
+    # Check if vouchers already exist for this competition
+    existing_vouchers = session.exec(
+        select(CompVoucher).where(
+            CompVoucher.competition_id == competition_id)).first()
+
+    if existing_vouchers:
+        logger.info("Competition vouchers already exist, skipping import")
+        return
+
+    try:
+        # Generate a set of unique 6-digit codes
+        used_codes = set()
+        vouchers = []
+
+        # Hardcoded member data from member_list.csv
+        member_data = [{
+            "Name": "Marios",
+            "Surname": "Apseros",
+            "Email": "mariosapseros@icloud.com",
+            "Mobile Phone": "96770673"
+        }, {
+            "Name": "Demetris",
+            "Surname": "Papakyriacou",
+            "Email": "dpapakyriacou14@gmail.com",
+            "Mobile Phone": "99756356"
+        }, {
+            "Name": "Thomas",
+            "Surname": "Georgiou",
+            "Email": "thomascgeorgiou@gmail.com",
+            "Mobile Phone": "94046600"
+        }, {
+            "Name": "Anna",
+            "Surname": "Michael",
+            "Email": "michaelanna777@gmail.com",
+            "Mobile Phone": "99295550"
+        }, {
+            "Name": "Tasos",
+            "Surname": "Michael",
+            "Email": "tasgsx@hotmail.com",
+            "Mobile Phone": "99462808"
+        }, {
+            "Name": "Andreas",
+            "Surname": "Parparinos",
+            "Email": "and_par@hotmail.com",
+            "Mobile Phone": "99472232"
+        }, {
+            "Name": "Andreas",
+            "Surname": "Rossidis",
+            "Email": "antreasrossidess@gmail.com",
+            "Mobile Phone": "99270137"
+        }, {
+            "Name": "Kimberley",
+            "Surname": "Reid",
+            "Email": "kimberley.reid@hotmail.co.uk",
+            "Mobile Phone": "94044655"
+        }, {
+            "Name": "Maria",
+            "Surname": "Antronicou",
+            "Email": "",
+            "Mobile Phone": ""
+        }, {
+            "Name": "Panayiotis",
+            "Surname": "Loizou",
+            "Email": "",
+            "Mobile Phone": ""
+        }, {
+            "Name": "Charalambos",
+            "Surname": "Theodorou",
+            "Email": "",
+            "Mobile Phone": ""
+        }, {
+            "Name": "Elli",
+            "Surname": "Kadi",
+            "Email": "",
+            "Mobile Phone": "99399756"
+        }, {
+            "Name": "Panayiotis",
+            "Surname": "Panayiotou",
+            "Email": "",
+            "Mobile Phone": "97762472"
+        }, {
+            "Name": "Grigoris",
+            "Surname": "Kyriakou",
+            "Email": "",
+            "Mobile Phone": "99239525"
+        }, {
+            "Name": "Nefeli",
+            "Surname": "Tsingi",
+            "Email": "",
+            "Mobile Phone": "97425372"
+        }, {
+            "Name": "Chrystalla",
+            "Surname": "Antoniou",
+            "Email": "",
+            "Mobile Phone": "99035045"
+        }, {
+            "Name": "Eleftheria",
+            "Surname": "Contopoullou",
+            "Email": "",
+            "Mobile Phone": "99942728"
+        }, {
+            "Name": "Roy",
+            "Surname": "Shartouni",
+            "Email": "",
+            "Mobile Phone": "97640624"
+        }, {
+            "Name": "Demetris",
+            "Surname": "Demetriou",
+            "Email": "",
+            "Mobile Phone": "99979041"
+        }, {
+            "Name": "Stavri",
+            "Surname": "Mama",
+            "Email": "",
+            "Mobile Phone": "96600765"
+        }, {
+            "Name": "Anna",
+            "Surname": "Fotiadou",
+            "Email": "",
+            "Mobile Phone": "99684549"
+        }]
+
+        for member in member_data:
+            # Generate a unique 6-digit code
+            while True:
+                code = random.randint(100000, 999999)
+                if code not in used_codes:
+                    used_codes.add(code)
+                    break
+
+            # Combine first and last name
+            full_name = f"{member['Name'].strip()} {member['Surname'].strip()}"
+
+            # Create voucher with available data
+            voucher = CompVoucher(
+                full_name=full_name,
+                email=member['Email'].strip() if member['Email'] else None,
+                phone=member['Mobile Phone'].strip()
+                if member['Mobile Phone'] else None,
+                code=code,
+                competition_id=competition_id)
+            vouchers.append(voucher)
+
+        if vouchers:
+            session.add_all(vouchers)
+            session.commit()
+            logger.info(f"Added {len(vouchers)} vouchers for competition "
+                        f"{competition_id}")
+        else:
+            logger.warning(
+                "No valid voucher data found in hardcoded member list")
+
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error importing competition vouchers: {str(e)}")
+
+
 def initialize_default_competition(session: Session):
     """Initialize the database with default competition data."""
     import_default_competition(session)
+
+    # Get the default competition ID to use for vouchers
+    default_comp = session.exec(
+        select(Competition).where(
+            Competition.name == DEFAULT_COMP_NAME)).first()
+
+    if default_comp:
+        # Import vouchers for the default competition
+        import_comp_vouchers(session, default_comp.id)
 
     logger.info("Default competition data initialization complete")

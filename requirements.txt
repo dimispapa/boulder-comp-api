@@ -14,10 +14,13 @@ certifi==2025.1.31
 charset-normalizer==3.4.1
 click==8.1.8
 click-didyoumean==0.3.1
+click-log==0.4.0
 click-plugins==1.1.1
 click-repl==0.3.0
 cloudinary==1.43.0
+cloudinary-cli==1.13.0
 deprecation==2.1.0
+docstring_parser==0.16
 et_xmlfile==2.0.0
 fastapi==0.115.12
 frozenlist==1.5.0
@@ -32,7 +35,9 @@ httpx==0.28.1
 hyperframe==6.1.0
 idna==3.10
 iniconfig==2.1.0
+Jinja2==3.1.6
 kombu==5.5.0
+MarkupSafe==3.0.2
 multidict==6.2.0
 numpy==2.2.4
 openpyxl==3.1.5
@@ -46,6 +51,7 @@ psycopg2-binary==2.9.10
 pydantic==2.10.6
 pydantic_core==2.27.2
 pyee==12.1.1
+Pygments==2.19.1
 pytest==8.3.5
 pytest-asyncio==0.26.0
 python-dateutil==2.9.0.post0
@@ -73,3 +79,5 @@ wcwidth==0.2.13
 webencodings==0.5.1
 websockets==14.2
 yarl==1.18.3
+zipp==3.21.0
+sendgrid==6.10.0

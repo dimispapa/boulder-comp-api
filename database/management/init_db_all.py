@@ -1,40 +1,47 @@
+#!/usr/bin/env python
 """
-Utility script to create all database tables.
+Initialize all database tables with required data.
 
-Run this script once to initialize the database schema.
+This script is used to set up a new database with both required core data
+(crags, boulders, routes) and default competition data. It does not drop any
+existing tables - for a complete reset, use reset_db.py.
 """
 import argparse
-# Import all models to ensure they are registered with SQLModel
-from database.models import *  # noqa: F403, F401
-from database.management.base import (
-    create_db_and_tables,
-    init_mock_competition_data,
-    init_default_competition_data,
-)
+
+from utils.loggers import logger
+from database.management.base import create_db_and_tables, get_db_session
+from database.management.init_crag_core import import_boulder_route_data
+from database.management.init_boulder_photos import reupload_boulder_photos
+from database.management.init_default_comp import (
+    initialize_default_competition)
+from database.management.init_default_workshops import (
+    initialize_default_workshops)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Initialize database and recreate tables.")
-    # Argument to create mock competition data
-    parser.add_argument("--mock-comp",
+        description="Initialize database with all required data.")
+    parser.add_argument("--force",
                         action="store_true",
-                        help="Create mock competition data")
-    # Argument to create default competition (for production)
-    parser.add_argument(
-        "--default-comp",
-        action="store_true",
-        help="Create default Spring Bouldering Festival competition "
-        "(for production)")
+                        help="Skip confirmations")
     args = parser.parse_args()
 
-    # Validate arguments - can't have both mock and default competition
-    if args.mock_comp and args.default_comp:
-        raise ValueError(
-            "Cannot specify both --mock-comp and --default-comp. Choose one.")
+    # Create tables if they don't exist (without resetting)
+    create_db_and_tables(reset=False)
 
-    create_db_and_tables()
+    # Import boulder and route data
+    logger.info("Importing boulder and route data...")
+    import_boulder_route_data()
 
-    if args.mock_comp:
-        init_mock_competition_data()
-    elif args.default_comp:
-        init_default_competition_data()
+    # Re-upload boulder photos
+    logger.info("Re-uploading boulder photos...")
+    reupload_boulder_photos(reset_urls=False)
+
+    # Initialize default competition
+    with get_db_session() as session:
+        logger.info("Initializing default competition...")
+        initialize_default_competition(session)
+
+        logger.info("Initializing default workshops...")
+        initialize_default_workshops(session)
+
+    logger.info("Database initialization complete!")

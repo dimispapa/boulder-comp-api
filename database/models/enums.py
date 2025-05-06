@@ -4,8 +4,8 @@ Enum definitions for the database models.
 from enum import Enum
 
 
-class CompetitionStatus(str, Enum):
-    """Competition status enum."""
+class EventStatus(str, Enum):
+    """Event status enum."""
     upcoming = "upcoming"
     ongoing = "ongoing"
     completed = "completed"

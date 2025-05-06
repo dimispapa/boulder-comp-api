@@ -6,7 +6,7 @@ from uuid import UUID
 from sqlmodel import Session, select
 
 from database.models.competitions import (Competition, Team, Participant,
-                                          Ascent, CompetitionStatus,
+                                          Ascent, EventStatus,
                                           CompetitionCategory)
 from database.models.media import CompetitionPhoto
 
@@ -32,7 +32,7 @@ def get_all_competitions(session: Session) -> List[Competition]:
 
 
 def get_competitions_by_status(session: Session,
-                               status: CompetitionStatus) -> List[Competition]:
+                               status: EventStatus) -> List[Competition]:
     """Get competitions by their status."""
     statement = select(Competition).where(Competition.status == status.value)
     return session.exec(statement).all()
