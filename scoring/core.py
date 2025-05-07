@@ -98,12 +98,6 @@ class ScoreCalculator:
             master_grade_bonus_factor = \
                 self.competition.master_grade_bonus.bonus_factor
 
-        # Get remote boulder bonus factor
-        remote_boulder_bonus_factor = None
-        if hasattr(self.competition, 'remote_boulder_bonus'):
-            remote_boulder_bonus_factor = \
-                self.competition.remote_boulder_bonus.bonus_factor
-
         # Combine all configurations into one dictionary
         config = {
             "base_points": base_points,
@@ -111,7 +105,6 @@ class ScoreCalculator:
             "team_bonuses": team_bonuses,
             "unique_bonus_factor": unique_bonus_factor,
             "master_grade_bonus_factor": master_grade_bonus_factor,
-            "remote_boulder_bonus_factor": remote_boulder_bonus_factor
         }
 
         logger.debug(f"Scoring config: {config}")
@@ -386,21 +379,13 @@ class ScoreCalculator:
         Returns:
             float: The remote boulder bonus score
         """
-        from database.models.scoring import RemoteBoulder
+        from database.models.scoring import RemoteBoulderBonus
         from sqlmodel import select
 
         remote_boulder_bonus = 0.0
 
-        # Check if remote boulder bonus is configured
-        if not self.scoring_config.get("remote_boulder_bonus_factor"):
-            return remote_boulder_bonus
-
-        # Get the default bonus factor from competition settings
-        default_bonus_factor = self.scoring_config[
-            "remote_boulder_bonus_factor"]
-
         # Get all remote boulder IDs and their specific bonus factors
-        statement = select(RemoteBoulder)
+        statement = select(RemoteBoulderBonus)
         remote_boulders = {
             str(rb.boulder_id): rb.bonus_factor
             for rb in self.session.exec(statement).all()
@@ -441,8 +426,7 @@ class ScoreCalculator:
                 route_details = route_df.iloc[0]
                 logger.debug(
                     f"Route {route_details['route_name']} gets remote bonus: "
-                    f"{route_remote_bonus}"
-                )
+                    f"{route_remote_bonus}")
 
         return remote_boulder_bonus
 
