@@ -53,7 +53,7 @@ class ScoreCalculator:
         """Get competition directly from database."""
         return get_competition_by_id(self.session, self.comp_id)
 
-    async def _get_scoring_config(self) -> Dict[str, Any]:
+    def _get_scoring_config(self) -> Dict[str, Any]:
         """
         Get the scoring configuration for the competition.
 
@@ -204,9 +204,6 @@ class ScoreCalculator:
             each containing a list of rankings
         """
         try:
-            # Get scoring parameters from config
-            self.scoring_config = await self._get_scoring_config()
-
             # Prepare ascents DataFrame
             await self._prepare_ascents_dataframe()
 
@@ -219,9 +216,8 @@ class ScoreCalculator:
             logger.info(f"Calculating scores for competition {self.comp_id} "
                         f"with categories {categories}")
             for category in categories:
-                category_name = category.name
-                # Calculate scores based on category
-                if category_name.lower() == "marathon":
+                category_type = category.category_type.lower()
+                if category_type == "marathon":
                     team_scores, detailed_calculations = \
                         await self._calculate_marathon_scores()
                     # Store the results
@@ -232,7 +228,7 @@ class ScoreCalculator:
                                         is_marathon=True)
                     # Add to return dictionary
                     rankings["marathon"] = team_scores
-                elif category_name.lower() == "boulder beasts":
+                elif category_type == "boulder_beasts":
                     participant_scores = \
                         await self._calculate_boulder_beasts_scores()
                     # Store the results
@@ -244,10 +240,10 @@ class ScoreCalculator:
                     # Add to return dictionary
                     rankings["boulder_beasts"] = participant_scores
                 else:
-                    logger.warning(
-                        f"Unsupported competition category: {category_name}")
+                    logger.warning("Unsupported competition category type: "
+                                   f"{category_type}")
                     raise NotImplementedError(
-                        f"Scoring for {category_name} is not implemented")
+                        f"Scoring for {category_type} is not implemented")
 
             logger.info(
                 f"Score calculation completed for competition {self.comp_id}")
