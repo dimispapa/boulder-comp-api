@@ -13,7 +13,6 @@ from database.models.enums import (EventStatus, CategoryType,
 from database.models.competitions import (Competition, CompetitionCategory,
                                           Team, Participant, Ascent,
                                           CompVoucher)
-from database.models.crags import Route
 from database.models.accounts import User
 from database.management.init_default_comp import (
     DEFAULT_COMP_NAME, DEFAULT_COMP_DISPLAY_NAME, DEFAULT_COMP_START_DATE,
@@ -802,268 +801,126 @@ def import_mock_remaining_participants(session: Session):
 
 def import_mock_ascents(session: Session):
     """Import mock ascent data."""
-    # Check if ascents already exist
-    existing_count = session.exec(select(Ascent)).first()
-    if existing_count:
-        logger.info("Ascents already exist in database, skipping import")
-        return
-
     # Get the competition
     comp = session.exec(
         select(Competition).where(Competition.name == MOCK_COMP_NAME)).first()
     if not comp:
-        logger.error("Mock competition not found. Cannot create ascents.")
+        logger.error("Competition not found. Cannot create ascents.")
         return
 
-    # Debug check before querying participants for ascents
-    debug_participants_is_solo(session, comp.id, "before ascent creation")
+    # Check if ascents already exist for this competition
+    existing_count = session.exec(
+        select(Ascent).where(Ascent.competition_id == comp.id)).all()
+    if existing_count:
+        logger.info(
+            f"Found {len(existing_count)} ascents for this competition. "
+            "Skipping ascent creation.")
+        return existing_count
 
-    # Run a quick SQL count to verify is_solo values
-    solo_count_query = select(Participant).where(
-        Participant.competition_id == comp.id, Participant.is_solo.is_(True))
-    team_count_query = select(Participant).where(
-        Participant.competition_id == comp.id, Participant.is_solo.is_(False))
-    solo_count = len(session.exec(solo_count_query).all())
-    team_count = len(session.exec(team_count_query).all())
-    logger.info(f"SQL COUNT check: {solo_count} solo participants, "
-                f"{team_count} team participants")
-
-    # Get participants with their team information and user details
-    participants_query = select(
-        Participant.id, Participant.team_id, Participant.is_solo,
-        Team.name.label("team_name"), Team.marathon_subcategory,
-        User.id.label("user_id"), User.first_name, User.last_name).join(
-            Team, Participant.team_id == Team.id, isouter=True).join(
-                User, Participant.user_id == User.id,
-                isouter=True).where(Participant.competition_id == comp.id)
-
-    participant_results = session.exec(participants_query)
-
-    # Build participants dict and group by team
-    participants = {}
-    participants_by_team = {}
-    team_subcategories = {}
-    solo_count = 0
-    team_count = 0
-
-    for p in participant_results:
-        # Handle case where user might be None
-        if p.first_name and p.last_name:
-            full_name = f"{p.first_name} {p.last_name}"
-        else:
-            full_name = f"Participant_{p.id}"
-
-        # Track is_solo status
-        is_solo = p.is_solo
-        if is_solo:
-            solo_count += 1
-        else:
-            team_count += 1
-
-        # Store the subcategory for the team
-        if p.team_name and p.marathon_subcategory:
-            team_subcategories[p.team_name] = p.marathon_subcategory
-
-        logger.info(f"Participant {full_name} has is_solo={is_solo}, "
-                    f"team_id={p.team_id}, team_name={p.team_name}")
-
-        participants[full_name] = {
-            "id": p.id,
-            "team_id": p.team_id,
-            "is_solo": is_solo,  # Store is_solo status in the dictionary
-            "team_name": p.team_name,
-            "marathon_subcategory": p.marathon_subcategory
-        }
-
-        # Group participants by team
-        team_name = p.team_name if p.team_name else "Solo"
-        if team_name not in participants_by_team:
-            participants_by_team[team_name] = []
-
-        participants_by_team[team_name].append(full_name)
-
-    # Ensure all solo participants are properly included in the "Solo" group
-    if "Solo" not in participants_by_team:
-        participants_by_team["Solo"] = []
-
-    # Double-check that all solo participants are in the Solo group
-    for name, info in participants.items():
-        if info["is_solo"] and name not in participants_by_team["Solo"]:
-            participants_by_team["Solo"].append(name)
-            logger.info(f"Added missed solo participant {name} to Solo group")
-
-    logger.info(
-        f"Participant query found {solo_count} solo and {team_count} team "
-        f"participants")
-    logger.info(
-        f"Teams in participants_by_team: {list(participants_by_team.keys())}")
-
+    # Get participants
+    participants = session.exec(
+        select(Participant).where(
+            Participant.competition_id == comp.id)).all()
     if not participants:
-        logger.error(
-            "No participants found for the competition. Cannot create ascents."
-        )
+        logger.error("No participants found. Cannot create ascents.")
         return
 
-    # Query existing routes from the database - limit to 200 for now
-    # Get routes across all boulders, with a diverse mix of grades
-    routes_query = select(Route).limit(MAX_ROUTE_LIMIT)
-    routes_result = session.exec(routes_query)
+    # Query competition boulders for this competition
+    from sqlmodel import select
+    from database.models.crags import Route
+    from database.models.competitions import CompetitionBoulder
 
-    routes = []
-    for r in routes_result:
-        routes.append({
-            "id": r.id,
-            "name": r.name,
-            "grade": r.grade,
-            "boulder_id": r.boulder_id,
-            "boulder_name": r.boulder.name,
-            "sector_id": r.boulder.sector_id,
-            "sector_name": r.boulder.sector.name
-        })
+    # Get allowed boulders for this competition
+    competition_boulders_query = select(CompetitionBoulder).where(
+        CompetitionBoulder.competition_id == comp.id,
+        CompetitionBoulder.is_active)
+    competition_boulders = session.exec(competition_boulders_query).all()
 
-    # If no routes found, log error and return
+    if not competition_boulders:
+        logger.error("No competition boulders found. Cannot create ascents.")
+        return
+
+    boulder_ids = [cb.boulder_id for cb in competition_boulders]
+    logger.info(f"Found {len(boulder_ids)} competition boulders")
+
+    # Get routes for these boulders
+    routes_query = select(Route).where(Route.boulder_id.in_(boulder_ids))
+    routes = session.exec(routes_query).all()
+
     if not routes:
-        logger.error("No routes found in database. Cannot create ascents.")
+        logger.error(
+            "No routes found for competition boulders. Cannot create ascents.")
         return
 
-    logger.info(f"Found {len(routes)} routes in the database")
+    logger.info(f"Found {len(routes)} routes for competition boulders")
 
-    # Group routes by grade for better distribution
-    route_by_grade = {}
-    for route in routes:
-        grade = route["grade"]
-        if grade not in route_by_grade:
-            route_by_grade[grade] = []
-        route_by_grade[grade].append(route)
-
-    # Create lists of routes by grade range
+    # Group routes by grade for subcategory filtering
     lower_grade_routes = []  # 6A+ and below
     higher_grade_routes = []  # 6B and above
 
-    # Lower grade routes (6A+ and below)
-    lower_grade_grades = [
-        '3', '3+', '4', '4+', '5', '5+', '6A', '6A+', 'V0', 'V1', 'V2'
-    ]
-    for grade in lower_grade_grades:
-        if grade in route_by_grade:
-            lower_grade_routes.extend(route_by_grade[grade])
+    for route in routes:
+        if route.grade in [
+                '3', '3+', '4', '4+', '5', '5+', '6A', '6A+', 'V0', 'V1', 'V2'
+        ]:
+            lower_grade_routes.append(route)
+        elif route.grade in [
+                '6B', '6B+', '6C', '6C+', '7A', '7A+', '7B', '7B+', '7C', 'V3',
+                'V4', 'V5', 'V6', 'V7', 'V8', 'V9'
+        ]:
+            higher_grade_routes.append(route)
 
-    # Higher grade routes (6B and above)
-    higher_grade_grades = [
-        '6B', '6B+', '6C', '6C+', '7A', '7A+', '7B', '7B+', '7C', 'V3', 'V4',
-        'V5', 'V6', 'V7', 'V8', 'V9'
-    ]
-    for grade in higher_grade_grades:
-        if grade in route_by_grade:
-            higher_grade_routes.extend(route_by_grade[grade])
+    logger.info(f"Categorized routes: {len(lower_grade_routes)} lower grade, "
+                f"{len(higher_grade_routes)} higher grade")
 
-    # Make sure we have enough routes for each category
-    min_routes_per_category = MIN_ROUTE_LIMIT // 2
+    # Create ascents
+    ascents = []
 
-    if len(lower_grade_routes) < min_routes_per_category:
-        logger.warning(
-            f"Not enough lower grade routes: {len(lower_grade_routes)}")
+    for participant in participants:
+        # Get participant's team to determine subcategory
+        team = None
+        if participant.team_id:
+            team = session.exec(
+                select(Team).where(Team.id == participant.team_id)).first()
 
-    if len(higher_grade_routes) < min_routes_per_category:
-        logger.warning(
-            f"Not enough higher grade routes: {len(higher_grade_routes)}")
-
-    # Map route names to IDs for easier reference
-    route_dict = {route["name"]: route["id"] for route in routes}
-
-    # Map routes by subcategory for easier access
-    routes_by_subcategory = {
-        MarathonSubCategory.lt_6B.value:
-        [r["name"] for r in lower_grade_routes],
-        MarathonSubCategory.gte_6B.value:
-        [r["name"] for r in higher_grade_routes]
-    }
-
-    # Log the routes we'll use by subcategory
-    logger.info(
-        f"Using {len(lower_grade_routes)} routes for 6A+ and under subcategory"
-    )
-    logger.info(
-        f"Using {len(higher_grade_routes)} routes for 6B and above subcategory"
-    )
-
-    # Define which routes each climber will attempt based on team subcategory
-    climber_routes = {}
-
-    # Helper function to get route names by subcategory
-    def get_routes_by_subcategory(subcategory, count=MIN_ASCENTS_PER_CLIMBER):
-        count = min(count, MAX_ASCENTS_PER_CLIMBER)
-
-        if subcategory == MarathonSubCategory.lt_6B.value:
-            routes = routes_by_subcategory[MarathonSubCategory.lt_6B.value]
-        elif subcategory == MarathonSubCategory.gte_6B.value:
-            routes = routes_by_subcategory[MarathonSubCategory.gte_6B.value]
-        else:  # Solo climbers can climb any route
-            routes = routes_by_subcategory[
-                MarathonSubCategory.lt_6B.value] + routes_by_subcategory[
-                    MarathonSubCategory.gte_6B.value]
-
-        # Handle case when there aren't enough routes
-        if len(routes) < count:
-            count = len(routes)
-
-        # Return a random selection to ensure variety
-        import random
-        return random.sample(routes, count)
-
-    # Assign routes to climbers based on their team's subcategory
-    for team_name, members in participants_by_team.items():
-        if team_name == "Solo":
-            # Solo participants get a mix of routes
-            for member in members:
-                route_count = random.randint(MIN_ASCENTS_PER_CLIMBER,
-                                             MAX_ASCENTS_PER_CLIMBER)
-                climber_routes[member] = get_routes_by_subcategory(
-                    None, route_count)
+        # Determine which routes the participant will climb
+        available_routes = []
+        if team and team.marathon_subcategory == MarathonSubCategory.lt_6B:
+            available_routes = lower_grade_routes
+        elif team and team.marathon_subcategory == MarathonSubCategory.gte_6B:
+            available_routes = higher_grade_routes
         else:
-            # Team participants get routes based on their subcategory
-            subcategory = team_subcategories.get(team_name)
+            # Solo participants or teams without subcategory
+            # can climb any route
+            available_routes = routes
 
-            if subcategory:
-                for member in members:
-                    # Vary the number of ascents per climber for more realism
-                    route_count = random.randint(MIN_ASCENTS_PER_CLIMBER,
-                                                 MAX_ASCENTS_PER_CLIMBER)
-                    climber_routes[member] = get_routes_by_subcategory(
-                        subcategory, route_count)
-            else:
-                logger.warning(
-                    f"Team {team_name} has no subcategory, skipping route "
-                    "assignment")
-
-    # Create ascent objects based on the mapped routes
-    all_ascents = []
-
-    for climber_name, route_names in climber_routes.items():
-        if climber_name not in participants:
+        # Ensure we have routes to assign
+        if not available_routes:
             logger.warning(
-                f"Participant {climber_name} not found, skipping ascents")
-            continue
+                f"No suitable routes for participant {participant.id}, "
+                "using all routes")
+            available_routes = routes
 
-        participant_info = participants[climber_name]
-        logger.info(f"Creating {len(route_names)} ascents for {climber_name}")
+        # Determine number of ascents for this participant
+        ascent_count = random.randint(
+            MIN_ASCENTS_PER_CLIMBER,
+            min(MAX_ASCENTS_PER_CLIMBER, len(available_routes)))
 
-        for route_name in route_names:
-            if route_name not in route_dict:
-                logger.warning(
-                    f"Route {route_name} not found, skipping ascent")
-                continue
+        # Select random routes
+        selected_routes = random.sample(available_routes, ascent_count)
 
+        # Create ascents
+        for route in selected_routes:
             ascent = Ascent(competition_id=comp.id,
-                            participant_id=participant_info["id"],
-                            route_id=route_dict[route_name],
-                            team_id=participant_info["team_id"])
-            all_ascents.append(ascent)
+                            participant_id=participant.id,
+                            route_id=route.id,
+                            team_id=participant.team_id,
+                            status=True)
+            ascents.append(ascent)
 
-    # Add all ascents to the database
-    session.add_all(all_ascents)
+    session.add_all(ascents)
     session.commit()
-    logger.info(f"Created {len(all_ascents)} mock ascents using real routes")
+    logger.info(f"Created {len(ascents)} mock ascents")
+    return ascents
 
 
 def initialize_mock_competition_data(session: Session):
