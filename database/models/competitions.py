@@ -13,7 +13,7 @@ from database.models.enums import (EventStatus, CategoryType,
                                    MarathonSubCategory)
 from database.models.scoring import (BasePoints, VolumeBonus,
                                      UniqueAscentBonus, TeamAscentBonus,
-                                     MasterGradeBonus)
+                                     MasterGradeBonus, RemoteBoulderBonus)
 from utils.general_utils import load_sql_file
 
 MIN_TEAM_SIZE = int(os.environ.get("MIN_TEAM_SIZE", 2))
@@ -57,6 +57,8 @@ class Competition(SQLModel, table=True):
     team_ascent_bonuses: Optional[List["TeamAscentBonus"]] = Relationship(
         back_populates="competition")
     master_grade_bonus: Optional["MasterGradeBonus"] = Relationship(
+        back_populates="competition")
+    remote_boulder_bonus: Optional["RemoteBoulderBonus"] = Relationship(
         back_populates="competition")
     comp_vouchers: List["CompVoucher"] = Relationship(
         back_populates="competition")
@@ -180,6 +182,7 @@ class Ascent(SQLModel, table=True):
     team_id: Optional[UUID] = Field(default=None, foreign_key="teams.id")
     status: bool = Field(default=True)
     inserted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Relationships
     participant: Participant = Relationship(back_populates="ascents")

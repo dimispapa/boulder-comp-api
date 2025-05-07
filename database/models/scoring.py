@@ -90,6 +90,24 @@ class MasterGradeBonus(SQLModel, table=True):
         back_populates="master_grade_bonus")
 
 
+class RemoteBoulderBonus(SQLModel, table=True):
+    """Remote boulder bonus configuration for individual boulders."""
+    __tablename__ = "remote_boulder_bonus"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    competition_id: UUID = Field(foreign_key="competitions.id")
+    boulder_id: UUID = Field(foreign_key="boulders.id", index=True)
+    bonus_factor: float  # Bonus factor for this specific remote boulder
+    inserted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    # This would normally have a relationship with Boulder,
+    # but we'll define it in the Boulder model to avoid circular imports
+    # Relationships
+    competition: Optional["Competition"] = Relationship(
+        back_populates="remote_boulder_bonus")
+
+
 class MarathonRanking(SQLModel, table=True):
     """Team rankings for marathon category."""
     __tablename__ = "marathon_rankings"
@@ -103,6 +121,7 @@ class MarathonRanking(SQLModel, table=True):
     unique_ascent_bonus: float
     team_ascent_bonus: float
     master_grade_bonus: float
+    remote_boulder_bonus: float
     total_score: float
     normalized_score: float
     rank: int
@@ -132,6 +151,7 @@ class MarathonDetailedResults(SQLModel, table=True):
     team_unique_routes: int
     master_grades: dict = Field(sa_type=JSONB)  # Master grades information
     master_grade_bonus: float
+    remote_boulder_bonus: float
     base_score: float
     team_ascent_bonus: float
     unique_ascent_bonus: float

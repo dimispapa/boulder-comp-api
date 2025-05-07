@@ -12,6 +12,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 if TYPE_CHECKING:
     from database.models.competitions import Ascent, Competition
     from database.models.media import BoulderPhoto
+    from database.models.scoring import RemoteBoulderBonus
 
 
 class Crag(SQLModel, table=True):
@@ -67,6 +68,8 @@ class Boulder(SQLModel, table=True):
     sector: Sector = Relationship(back_populates="boulders")
     routes: List["Route"] = Relationship(back_populates="boulder")
     photos: List["BoulderPhoto"] = Relationship(back_populates="boulder")
+    remote_config: Optional["RemoteBoulderBonus"] = Relationship(
+        sa_relationship_kwargs={"uselist": False})
 
 
 class Route(SQLModel, table=True):

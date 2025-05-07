@@ -40,6 +40,8 @@ class MarathonScoreComponents(BaseModel):
         ..., description="Bonus for team route completions")
     master_grade_bonus: float = Field(
         ..., description="Bonus for most ascents at grade")
+    remote_boulder_bonus: float = Field(
+        ..., description="Bonus for remote boulder ascents")
 
 
 class MarathonTeamRanking(BaseModel):
