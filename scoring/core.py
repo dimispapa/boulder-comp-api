@@ -9,10 +9,12 @@ from pathlib import Path
 import os
 import pandas as pd
 from sqlmodel import Session
+from sqlmodel import select
 
 from utils.loggers import logger
 from database.crud.competitions import get_competition_by_id, get_team_by_id
 from database.models.competitions import Competition, MarathonSubCategory
+from database.models.scoring import RemoteBoulderBonus
 from scoring.data_storage import store_results
 
 
@@ -362,70 +364,6 @@ class ScoreCalculator:
 
         return boulder_id
 
-    async def _calculate_remote_boulder_bonus(self,
-                                              team_df: pd.DataFrame) -> float:
-        """
-        Calculate the remote boulder bonus for a team.
-        This bonus is applied to ascents on boulders that are
-        designated as remote.
-
-        Args:
-            team_df: DataFrame with the team's ascents
-
-        Returns:
-            float: The remote boulder bonus score
-        """
-        from database.models.scoring import RemoteBoulderBonus
-        from sqlmodel import select
-
-        remote_boulder_bonus = 0.0
-
-        # Get all remote boulder IDs and their specific bonus factors
-        statement = select(RemoteBoulderBonus)
-        remote_boulders = {
-            str(rb.boulder_id): rb.bonus_factor
-            for rb in self.session.exec(statement).all()
-        }
-
-        if not remote_boulders:
-            logger.debug("No remote boulders found in the database")
-            return remote_boulder_bonus
-
-        # Group by route to process each route once
-        for route_id in team_df["route_id"].unique():
-            # Convert the route_id to UUID
-            route_uuid = route_id
-            if isinstance(route_id, str):
-                route_uuid = uuid.UUID(route_id)
-
-            route_df = team_df[team_df["route_id"] == route_id]
-
-            # Get boulder ID for this route
-            boulder_id = self._get_boulder_id_for_route(route_uuid)
-
-            # Continue if no boulder_id found
-            if not boulder_id:
-                continue
-
-            # Check if the route's boulder is in the remote boulders list
-            if str(boulder_id) in remote_boulders:
-                # Get boulder-specific bonus factor
-                bonus_factor = remote_boulders[str(boulder_id)]
-
-                # Calculate bonus: base points * bonus factor
-                base_points = route_df["base_points"].sum()
-                route_remote_bonus = base_points * bonus_factor
-
-                remote_boulder_bonus += route_remote_bonus
-
-                # Debug log
-                route_details = route_df.iloc[0]
-                logger.debug(
-                    f"Route {route_details['route_name']} gets remote bonus: "
-                    f"{route_remote_bonus}")
-
-        return remote_boulder_bonus
-
     async def _calculate_unique_ascent_bonus(self, route_id: str,
                                              base_points: float) -> float:
         """
@@ -459,7 +397,6 @@ class ScoreCalculator:
         Returns:
             Tuple of (team scores list, detailed calculations list)
         """
-
         # Filter out solo entries
         team_ascents_df = self.ascents_df[~self.ascents_df["is_solo"]].copy()
 
@@ -543,6 +480,14 @@ class ScoreCalculator:
             base_score = 0
             team_ascent_bonus = 0
             unique_ascent_bonus = 0
+            remote_boulder_bonus = 0  # Initialize remote boulder bonus
+
+            # Get all remote boulder IDs and their specific bonus factors
+            statement = select(RemoteBoulderBonus)
+            remote_boulders = {
+                str(rb.boulder_id): rb.bonus_factor
+                for rb in self.session.exec(statement).all()
+            }
 
             # Group by route to process each route once
             for route_id in team_routes:
@@ -573,6 +518,32 @@ class ScoreCalculator:
                     # Add to the list of unique routes
                     team_unique_routes.append(route_id)
 
+                # Calculate remote boulder bonus for this route
+                route_remote_bonus = 0.0
+                # Convert the route_id to UUID if it's a string
+                route_uuid = route_id
+                if isinstance(route_id, str):
+                    route_uuid = uuid.UUID(route_id)
+
+                # Get boulder ID for this route
+                boulder_id = self._get_boulder_id_for_route(route_uuid)
+
+                # Check if the route's boulder is in the remote boulders list
+                if boulder_id and str(boulder_id) in remote_boulders:
+                    # Get boulder-specific bonus factor
+                    bonus_factor = remote_boulders[str(boulder_id)]
+
+                    # Calculate bonus: base points * bonus factor
+                    route_remote_bonus = base_points * bonus_factor
+
+                    # Add to total remote boulder bonus
+                    remote_boulder_bonus += route_remote_bonus
+
+                    # Debug log
+                    logger.debug(
+                        f"Route {route_details['route_name']} gets remote "
+                        f"bonus: {route_remote_bonus}")
+
                 # Store detailed route calculation
                 detailed_routes.append({
                     "route_id":
@@ -587,8 +558,11 @@ class ScoreCalculator:
                     route_team_bonus,
                     "unique_ascent_bonus":
                     route_unique_bonus,
+                    "remote_boulder_bonus":
+                    route_remote_bonus,  # Include remote bonus in details
                     "total_points":
-                    base_points + route_team_bonus + route_unique_bonus
+                    base_points + route_team_bonus + route_unique_bonus +
+                    route_remote_bonus
                 })
 
             # Calculate volume bonus
@@ -603,11 +577,11 @@ class ScoreCalculator:
                 master_grade_bonus = 0
                 master_grades = []
 
-            # Calculate remote boulder bonus
-            remote_boulder_bonus = await self._calculate_remote_boulder_bonus(
-                team_df)
-
             # Calculate total and normalized scores
+            # (ensure remote_boulder_bonus is never None)
+            if remote_boulder_bonus is None:
+                remote_boulder_bonus = 0.0
+
             total_score = (base_score + volume_bonus + team_ascent_bonus +
                            unique_ascent_bonus + master_grade_bonus +
                            remote_boulder_bonus)
@@ -660,7 +634,7 @@ class ScoreCalculator:
 
         # Group teams by subcategory
         subcategory_teams = {
-            # Using the enum member names as keys
+            # Using the enum member names as keyss
             MarathonSubCategory.lt_6B.name: [],
             MarathonSubCategory.gte_6B.name: [],
             None: []  # For teams without subcategory
