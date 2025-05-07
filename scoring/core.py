@@ -780,7 +780,7 @@ class ScoreCalculator:
                     f"{len(participant_scores)} participants")
         return sorted_scores
 
-    async def _is_route_valid_for_subcategory(
+    def _is_route_valid_for_subcategory(
             self, grade: str,
             subcategory: Optional[MarathonSubCategory]) -> bool:
         """
