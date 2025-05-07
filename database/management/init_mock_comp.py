@@ -13,6 +13,8 @@ from database.models.enums import (EventStatus, CategoryType,
 from database.models.competitions import (Competition, CompetitionCategory,
                                           Team, Participant, Ascent,
                                           CompVoucher)
+from database.models.crags import Route
+from database.models.competitions import CompetitionBoulder
 from database.models.accounts import User
 from database.management.init_default_comp import (
     DEFAULT_COMP_NAME, DEFAULT_COMP_DISPLAY_NAME, DEFAULT_COMP_START_DATE,
@@ -60,6 +62,7 @@ MOCK_COMP_NAME = DEFAULT_COMP_NAME
 MOCK_COMP_DISPLAY_NAME = DEFAULT_COMP_DISPLAY_NAME
 MOCK_COMP_START_DATE = DEFAULT_COMP_START_DATE.date()
 MOCK_COMP_END_DATE = DEFAULT_COMP_END_DATE.date()
+MIN_TEAMS_PER_SUBCATEGORY = 6
 MAX_ROUTE_LIMIT = 200
 MIN_ROUTE_LIMIT = 50
 NO_OF_BEGINNER_ROUTES = 100
@@ -801,6 +804,7 @@ def import_mock_remaining_participants(session: Session):
 
 def import_mock_ascents(session: Session):
     """Import mock ascent data."""
+
     # Get the competition
     comp = session.exec(
         select(Competition).where(Competition.name == MOCK_COMP_NAME)).first()
@@ -826,11 +830,6 @@ def import_mock_ascents(session: Session):
         return
 
     # Query competition boulders for this competition
-    from sqlmodel import select
-    from database.models.crags import Route
-    from database.models.competitions import CompetitionBoulder
-
-    # Get allowed boulders for this competition
     competition_boulders_query = select(CompetitionBoulder).where(
         CompetitionBoulder.competition_id == comp.id,
         CompetitionBoulder.is_active)
@@ -923,6 +922,250 @@ def import_mock_ascents(session: Session):
     return ascents
 
 
+def ensure_minimum_subcategory_teams(session: Session,
+                                     min_teams_per_subcategory=6):
+    """
+    Ensure there are at least the minimum number of teams in each subcategory.
+    If not, create additional teams, participants, and their ascents.
+    """
+    # Get the competition
+    comp = session.exec(
+        select(Competition).where(Competition.name == MOCK_COMP_NAME)).first()
+    if not comp:
+        logger.error("Competition not found. Cannot ensure minimum teams.")
+        return
+
+    # Count existing teams by subcategory
+    lower_teams = session.exec(
+        select(Team).where(
+            Team.competition_id == comp.id,
+            Team.marathon_subcategory == MarathonSubCategory.lt_6B)).all()
+
+    higher_teams = session.exec(
+        select(Team).where(
+            Team.competition_id == comp.id,
+            Team.marathon_subcategory == MarathonSubCategory.gte_6B)).all()
+
+    logger.info(f"Found {len(lower_teams)} teams in 6A+ and below subcategory")
+    logger.info(f"Found {len(higher_teams)} teams in 6B and above subcategory")
+
+    # Check if we need to add more teams to either subcategory
+    lower_teams_to_add = max(0, min_teams_per_subcategory - len(lower_teams))
+    higher_teams_to_add = max(0, min_teams_per_subcategory - len(higher_teams))
+
+    if lower_teams_to_add == 0 and higher_teams_to_add == 0:
+        logger.info(
+            "Both subcategories already have the minimum number of teams")
+        return
+
+    # Get users that aren't already participants in this competition
+    existing_participant_users = session.exec(
+        select(Participant.user_id).where(
+            Participant.competition_id == comp.id)).all()
+
+    available_users = session.exec(
+        select(User).where(User.id.not_in(existing_participant_users))).all()
+
+    # If we don't have enough users, create new ones
+    needed_users = (lower_teams_to_add +
+                    higher_teams_to_add) * 3  # 3 users per team
+
+    if len(available_users) < needed_users:
+        logger.info(
+            f"Creating {needed_users - len(available_users)} new users")
+        new_users = []
+
+        for i in range(needed_users - len(available_users)):
+            new_user = User(first_name=f"MockUser{i+1}",
+                            last_name=f"Subcategory{i+1}",
+                            email=f"mockuser{i+1}@example.com",
+                            hashed_password=bcrypt.hashpw(
+                                "password123".encode(),
+                                bcrypt.gensalt()).decode(),
+                            role=UserRole.user,
+                            confirmed_at=datetime.now())
+            new_users.append(new_user)
+
+        session.add_all(new_users)
+        session.commit()
+
+        # Refresh available users
+        available_users = session.exec(
+            select(User).where(
+                User.id.not_in(existing_participant_users))).all()
+
+    # Create new teams for each subcategory
+    user_index = 0
+    team_index = 0  # Add a separate team_index for tracking team count
+    new_teams = []
+
+    # Helper function to create a team
+    def create_team(name, subcategory):
+        nonlocal user_index
+        nonlocal team_index  # Use team_index for team code
+        # Generate a unique team code
+        team_code = f"TEAM{1000 + team_index:04d}"
+        team_index += 1  # Increment the team index for each new team
+
+        # Create team with first user as captain
+        team = Team(competition_id=comp.id,
+                    name=name,
+                    team_code=team_code,
+                    captain_id=available_users[user_index].id,
+                    marathon_subcategory=subcategory)
+        session.add(team)
+        session.flush()  # Flush to get the team ID
+
+        # Create 3 participants (including captain) for this team
+        participants = []
+        for i in range(3):
+            if user_index < len(available_users):
+                participant = Participant(
+                    competition_id=comp.id,
+                    user_id=available_users[user_index].id,
+                    team_id=team.id,
+                    signed_waiver=True)
+                participants.append(participant)
+                user_index += 1
+
+        session.add_all(participants)
+        new_teams.append(team)  # Add the team to new_teams list
+        return team, participants
+
+    # Create teams for lower subcategory (6A+ and below)
+    lower_subcategory_teams = []
+    lower_subcategory_participants = []
+
+    for i in range(lower_teams_to_add):
+        team_name = f"Lower Grade Team {i+1}"
+        team, participants = create_team(team_name, MarathonSubCategory.lt_6B)
+        lower_subcategory_teams.append(team)
+        lower_subcategory_participants.extend(participants)
+
+    # Create teams for higher subcategory (6B and above)
+    higher_subcategory_teams = []
+    higher_subcategory_participants = []
+
+    for i in range(higher_teams_to_add):
+        team_name = f"Higher Grade Team {i+1}"
+        team, participants = create_team(team_name, MarathonSubCategory.gte_6B)
+        higher_subcategory_teams.append(team)
+        higher_subcategory_participants.extend(participants)
+
+    # Commit to save all teams and participants
+    session.commit()
+
+    if lower_teams_to_add > 0:
+        logger.info(f"Created {lower_teams_to_add} new teams for 6A+ "
+                    "and below subcategory")
+
+    if higher_teams_to_add > 0:
+        logger.info(f"Created {higher_teams_to_add} new teams for 6B "
+                    "and above subcategory")
+
+    # Create ascents for the new participants
+    # Get competition boulders
+    competition_boulders = session.exec(
+        select(CompetitionBoulder).where(
+            CompetitionBoulder.competition_id == comp.id,
+            CompetitionBoulder.is_active)).all()
+
+    if not competition_boulders:
+        logger.error("No competition boulders found. Cannot create ascents.")
+        return
+
+    boulder_ids = [cb.boulder_id for cb in competition_boulders]
+
+    # Get routes for these boulders
+    routes = session.exec(
+        select(Route).where(Route.boulder_id.in_(boulder_ids))).all()
+
+    if not routes:
+        logger.error(
+            "No routes found for competition boulders. Cannot create ascents.")
+        return
+
+    # Group routes by grade
+    lower_grade_routes = []  # 6A+ and below
+    higher_grade_routes = []  # 6B and above
+
+    for route in routes:
+        if route.grade in [
+                '3', '3+', '4', '4+', '5', '5+', '6A', '6A+', 'V0', 'V1', 'V2',
+                'V3'
+        ]:
+            lower_grade_routes.append(route)
+        elif route.grade in [
+                '6B', '6B+', '6C', '6C+', '7A', '7A+', '7B', '7B+', '7C',
+                '7C+', '8A', 'V4', 'V5', 'V6', 'V7', 'V8', 'V9', 'V10', 'V11'
+        ]:
+            higher_grade_routes.append(route)
+
+    # Create ascents
+    all_ascents = []
+
+    # Create ascents for lower subcategory participants
+    for participant in lower_subcategory_participants:
+        # Use only routes appropriate for this subcategory
+        available_routes = lower_grade_routes
+
+        if not available_routes:
+            logger.warning(
+                f"No suitable routes for participant {participant.id}")
+            continue
+
+        # Create 7-15 ascents per participant
+        ascent_count = random.randint(
+            MIN_ASCENTS_PER_CLIMBER,
+            min(MAX_ASCENTS_PER_CLIMBER, len(available_routes)))
+        selected_routes = random.sample(available_routes, ascent_count)
+
+        for route in selected_routes:
+            ascent = Ascent(competition_id=comp.id,
+                            participant_id=participant.id,
+                            route_id=route.id,
+                            team_id=participant.team_id,
+                            status=True)
+            all_ascents.append(ascent)
+
+    # Create ascents for higher subcategory participants
+    for participant in higher_subcategory_participants:
+        # Use only routes appropriate for this subcategory
+        available_routes = higher_grade_routes
+
+        if not available_routes:
+            logger.warning(
+                f"No suitable routes for participant {participant.id}")
+            continue
+
+        # Create 7-15 ascents per participant
+        ascent_count = random.randint(
+            MIN_ASCENTS_PER_CLIMBER,
+            min(MAX_ASCENTS_PER_CLIMBER, len(available_routes)))
+        selected_routes = random.sample(available_routes, ascent_count)
+
+        for route in selected_routes:
+            ascent = Ascent(competition_id=comp.id,
+                            participant_id=participant.id,
+                            route_id=route.id,
+                            team_id=participant.team_id,
+                            status=True)
+            all_ascents.append(ascent)
+
+    # Add all ascents to the database
+    session.add_all(all_ascents)
+    session.commit()
+
+    logger.info(f"Created {len(all_ascents)} ascents for new participants")
+
+    # Update team statuses
+    for team in lower_subcategory_teams + higher_subcategory_teams:
+        update_team_status(session, team.id)
+
+    session.commit()
+    logger.info("Updated team statuses for new teams")
+
+
 def initialize_mock_competition_data(session: Session):
     """Initialize the database with mock competition data."""
     comp = import_mock_competitions(session)
@@ -938,6 +1181,10 @@ def initialize_mock_competition_data(session: Session):
 
     import_mock_ascents(session)
 
+    # Ensure minimum teams in each subcategory
+    ensure_minimum_subcategory_teams(
+        session, min_teams_per_subcategory=MIN_TEAMS_PER_SUBCATEGORY)
+
     # Use the scoring config function from init_default_comp.py
     if comp:
         import_scoring_config(session, comp.id)
@@ -950,3 +1197,12 @@ def initialize_mock_competition_data(session: Session):
                                    "after complete initialization")
 
     logger.info("Mock competition data initialization complete")
+
+
+if __name__ == "__main__":
+    from database.management.base import get_db
+
+    session = next(get_db())
+    logger.info("Starting mock data initialization...")
+    initialize_mock_competition_data(session)
+    logger.info("Script execution completed.")
