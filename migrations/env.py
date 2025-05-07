@@ -13,9 +13,7 @@ from database.models.competitions import SQLModel
 load_dotenv()
 
 # Get database connection details from environment variables
-DEV_ENV = os.getenv("DEV_ENV", "False").lower() == "true"
-NEON_DB_URL = (os.getenv("NEON_DB_DEV_URL")
-               if DEV_ENV else os.getenv("NEON_DB_MAIN_URL"))
+NEON_DB_URL = os.getenv("NEON_DB_URL")
 
 if not NEON_DB_URL:
     raise ValueError("NEON_DB_URL environment variable is not set")

@@ -5,14 +5,10 @@
   "keywords": ["python", "fastapi", "celery", "redis", "sqlmodel", "neon"],
   "addons": ["heroku-redis:hobby-dev"],
   "env": {
-      "NEON_DB_DEV_URL": {
-        "description": "Your Neon DB dev connection URL",
+      "NEON_DB_URL": {
+        "description": "Your Neon DB connection URL",
         "required": true
       },
-    "NEON_DB_MAIN_URL": {
-      "description": "Your Neon DB main connection URL",
-      "required": true
-    },
     "DEV_ENV": {
       "description": "Whether the app is running in dev mode",
       "required": true

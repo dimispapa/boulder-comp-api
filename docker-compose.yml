@@ -10,8 +10,7 @@ services:
       - "${API_PORT}:${API_PORT}"
     environment:
       # Database Configuration
-      - NEON_DB_MAIN_URL=${NEON_DB_MAIN_URL}
-      - NEON_DB_DEV_URL=${NEON_DB_DEV_URL}
+      - NEON_DB_URL=${NEON_DB_URL}
       # Redis Configuration
       - REDIS_URL=${REDIS_URL}
       # API Configuration
@@ -64,8 +63,7 @@ services:
       - ./data:/app/data
     environment:
       # Database Configuration
-      - NEON_DB_MAIN_URL=${NEON_DB_MAIN_URL}
-      - NEON_DB_DEV_URL=${NEON_DB_DEV_URL}
+      - NEON_DB_URL=${NEON_DB_URL}
       # Redis Configuration
       - REDIS_URL=${REDIS_URL}
       # API Configuration
