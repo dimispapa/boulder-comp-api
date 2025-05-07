@@ -10,6 +10,7 @@ import os
 import pandas as pd
 from sqlmodel import Session
 from sqlmodel import select
+import gc
 
 from utils.loggers import logger
 from database.crud.competitions import get_competition_by_id, get_team_by_id
@@ -230,6 +231,8 @@ class ScoreCalculator:
                                         is_marathon=True)
                     # Add to return dictionary
                     rankings["marathon"] = team_scores
+                    # Collect garbage to clear memory
+                    gc.collect()
                 elif category_type == "boulder_beasts":
                     participant_scores = \
                         await self._calculate_boulder_beasts_scores()
@@ -241,6 +244,8 @@ class ScoreCalculator:
                                         is_marathon=False)
                     # Add to return dictionary
                     rankings["boulder_beasts"] = participant_scores
+                    # Collect garbage to clear memory
+                    gc.collect()
                 else:
                     logger.warning("Unsupported competition category type: "
                                    f"{category_type}")
@@ -629,8 +634,11 @@ class ScoreCalculator:
                 "ranking": None  # Add ranking field, to be set after sorting
             }
 
+            # Append the team score and detailed calculation to the lists
             team_scores.append(team_score)
             detailed_calculations.append(detailed_calculation)
+            # Collect garbage to clear memory
+            gc.collect()
 
         # Group teams by subcategory
         subcategory_teams = {
