@@ -16,7 +16,7 @@ from database.models.crags import Boulder
 from database.crud.crags import get_crag_by_name
 from database.models.scoring import (BasePoints, VolumeBonus,
                                      UniqueAscentBonus, TeamAscentBonus,
-                                     MasterGradeBonus)
+                                     MasterGradeBonus, RemoteBoulderBonus)
 
 # Constants
 DEFAULT_COMP_NAME = "spring_bouldering_festival_comp"
@@ -270,6 +270,17 @@ def import_scoring_config(session: Session, comp_id: str):
         comp_mb = MasterGradeBonus(competition_id=comp.id,
                                    bonus_factor=mb.bonus_factor)
         session.add(comp_mb)
+
+    # Get global remote boulder bonus
+    global_remote_bonus = session.exec(
+        select(RemoteBoulderBonus).where(
+            RemoteBoulderBonus.competition_id.is_(None))).all()
+
+    # Create competition-specific remote boulder bonus
+    for rb in global_remote_bonus:
+        comp_rb = RemoteBoulderBonus(competition_id=comp.id,
+                                     bonus_factor=rb.bonus_factor)
+        session.add(comp_rb)
 
     session.commit()
     logger.info(

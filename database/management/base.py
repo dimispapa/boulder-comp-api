@@ -135,3 +135,11 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def check_db_connection():
+    """Test database connection without modifying schema."""
+    with engine.connect() as connection:
+        # Simple query to verify connection works
+        result = connection.execute(text("SELECT 1"))
+        return result.scalar() == 1

@@ -5,8 +5,6 @@ from dotenv import load_dotenv
 import pytz
 from celery.signals import setup_logging
 from utils.loggers import logger
-# Import database components
-from database import create_db_and_tables
 
 # Import routers
 from api.routes import scoring, media
@@ -21,13 +19,13 @@ api_host = os.getenv("API_HOST", "0.0.0.0")
 api_port = os.getenv("API_PORT", "8000")
 api_version = os.getenv("API_VERSION", "1.0.0")
 
-# Initialize SQLModel database tables
+# Check database connection without making changes
 try:
-    create_db_and_tables()
-    logger.info("Database tables created or verified successfully.")
+    from database.management.base import check_db_connection
+    check_db_connection()
+    logger.info("Database connection verified successfully.")
 except Exception as e:
-    logger.error(f"Error initializing database tables: {str(e)}")
-    # Continue without failing, as tables might already exist
+    logger.error(f"Error connecting to database: {str(e)}")
 
 # Initialize FastAPI app
 app = FastAPI(
