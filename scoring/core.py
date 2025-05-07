@@ -485,7 +485,7 @@ class ScoreCalculator:
             base_score = 0
             team_ascent_bonus = 0
             unique_ascent_bonus = 0
-            remote_boulder_bonus = 0  # Initialize remote boulder bonus
+            remote_boulder_bonus = 0
 
             # Get all remote boulder IDs and their specific bonus factors
             statement = select(RemoteBoulderBonus)
@@ -564,7 +564,7 @@ class ScoreCalculator:
                     "unique_ascent_bonus":
                     route_unique_bonus,
                     "remote_boulder_bonus":
-                    route_remote_bonus,  # Include remote bonus in details
+                    route_remote_bonus,
                     "total_points":
                     base_points + route_team_bonus + route_unique_bonus +
                     route_remote_bonus
