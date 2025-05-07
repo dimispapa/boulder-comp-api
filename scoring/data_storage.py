@@ -77,6 +77,9 @@ async def store_results(session: Session,
                         master_grade_bonus=float(
                             convert_to_python_type(
                                 score["master_grade_bonus"])),
+                        remote_boulder_bonus=float(
+                            convert_to_python_type(
+                                score["remote_boulder_bonus"])),
                         total_score=float(
                             convert_to_python_type(score["total_score"])),
                         normalized_score=float(
@@ -146,6 +149,9 @@ async def store_results(session: Session,
                             unique_ascent_bonus=float(
                                 convert_to_python_type(
                                     calculation["unique_ascent_bonus"])),
+                            remote_boulder_bonus=float(
+                                convert_to_python_type(
+                                    calculation["remote_boulder_bonus"])),
                             total_score=float(
                                 convert_to_python_type(
                                     calculation["total_score"])),
