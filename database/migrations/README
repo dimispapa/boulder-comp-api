@@ -1,0 +1,47 @@
+Generic single-database configuration.
+
+## Basic Alembic Commands
+
+### Generate a new migration (auto-detecting changes)
+```
+alembic revision --autogenerate -m "Description of changes"
+```
+
+### Apply all pending migrations
+```
+alembic upgrade head
+```
+
+### Downgrade to a previous version
+```
+alembic downgrade <revision>
+```
+or
+```
+alembic downgrade -1    # downgrade one revision
+```
+
+### View migration history
+```
+alembic history
+```
+
+### View current database revision
+```
+alembic current
+```
+
+### Create a new empty migration
+```
+alembic revision -m "Description of empty migration"
+```
+
+### Stamp the database with the current revision without running migrations
+```
+alembic stamp <revision>
+```
+
+### Show the SQL statements that would be executed for a migration
+```
+alembic upgrade <revision>:head --sql
+```

@@ -174,6 +174,10 @@ class Participant(SQLModel, table=True):
 class Ascent(SQLModel, table=True):
     """Recorded ascent of a route."""
     __tablename__ = "ascents"
+    __table_args__ = (UniqueConstraint('participant_id',
+                                       'route_id',
+                                       'competition_id',
+                                       name='unique_ascent_per_competition'), )
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     competition_id: UUID = Field(foreign_key="competitions.id")

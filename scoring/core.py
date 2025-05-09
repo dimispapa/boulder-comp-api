@@ -151,6 +151,10 @@ class ScoreCalculator:
 
         # Iterate through all ascents in the competition using the relationship
         for ascent in self.competition.ascents:
+            # Skip ascents where status is False
+            if not ascent.status:
+                continue
+
             # Get related objects through relationship properties
             participant = ascent.participant
             route = ascent.route
@@ -189,6 +193,9 @@ class ScoreCalculator:
 
         # Store the DataFrame for further calculations
         self.ascents_df = df
+
+        logger.info(f"Prepared ascents DataFrame with {len(df)} valid ascents "
+                    f"(status=True)")
 
         return df
 

@@ -859,12 +859,13 @@ def import_mock_ascents(session: Session):
 
     for route in routes:
         if route.grade in [
-                '3', '3+', '4', '4+', '5', '5+', '6A', '6A+', 'V0', 'V1', 'V2'
+                '3', '3+', '4', '4+', '5', '5+', '6A', '6A+', 'V0', 'V1', 'V2',
+                'V3'
         ]:
             lower_grade_routes.append(route)
         elif route.grade in [
-                '6B', '6B+', '6C', '6C+', '7A', '7A+', '7B', '7B+', '7C', 'V3',
-                'V4', 'V5', 'V6', 'V7', 'V8', 'V9'
+                '6B', '6B+', '6C', '6C+', '7A', '7A+', '7B', '7B+', '7C',
+                '7C+', '8A', 'V4', 'V5', 'V6', 'V7', 'V8', 'V9', 'V10', 'V11'
         ]:
             higher_grade_routes.append(route)
 
