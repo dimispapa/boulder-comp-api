@@ -55,6 +55,7 @@ htmlcov/
 # Project data files
 data/
 *data/
+database/gsheets/creds
 
 # Test debug files
 tests/scraper/debug/

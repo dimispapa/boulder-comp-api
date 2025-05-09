@@ -75,7 +75,7 @@ WORKSHOP_DESCRIPTIONS = {
     "pioneers of highlining. This session covers safety protocols, "
     "basic walking techniques, and mental preparation. No prior experience "
     "necessary, but participants should ideally be comfortable with heights.",
-    "Intro to Outdoor Bouldering – Kids (10–16)":
+    "Intro to Outdoor Bouldering – Kids & Teens (8–17)":
     "A fun and engaging introduction to outdoor bouldering designed "
     "specifically for young climbers. Children will learn climbing basics, "
     "safety, and environmental awareness through games and supervised "
@@ -95,7 +95,7 @@ WORKSHOP_INSTRUCTORS = {
     "Paris Hadjisoteriou (Redpoint Academy Nicosia)",
     "Guided Highline Session - Alikou, Inia":
     "Kim Lucas, Theo Constantinou & Tanios Nassar",
-    "Intro to Outdoor Bouldering – Kids (10–16)":
+    "Intro to Outdoor Bouldering – Kids & Teens (8–17)":
     "Constantinos Prodromou & others (Mountain Junkies)",
     "Intro to Sport Climbing – Gerakopetra, Inia":
     "Marios Hadjipetris (One Step Further) & "

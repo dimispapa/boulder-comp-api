@@ -71,6 +71,7 @@ NO_OF_ADVANCED_ROUTES = 30
 MIN_ASCENTS_PER_CLIMBER = 7
 MAX_ASCENTS_PER_CLIMBER = 50
 MAX_TEAM_SIZE = int(os.environ.get("MAX_TEAM_SIZE", 4))
+ASCENT_APPROVAL_RATE = 0.9  # 90% of ascents will be approved (status=True)
 
 
 def update_team_status(session: Session, team_id):
@@ -910,11 +911,13 @@ def import_mock_ascents(session: Session):
 
         # Create ascents
         for route in selected_routes:
+            # Randomly set status with 90% chance of being True
+            status = random.random() < ASCENT_APPROVAL_RATE
             ascent = Ascent(competition_id=comp.id,
                             participant_id=participant.id,
                             route_id=route.id,
                             team_id=participant.team_id,
-                            status=True)
+                            status=status)  # 10% chance of being False
             ascents.append(ascent)
 
     session.add_all(ascents)
@@ -1001,7 +1004,7 @@ def ensure_minimum_subcategory_teams(session: Session,
     new_teams = []
 
     # Helper function to create a team
-    def create_team(name, subcategory):
+    def create_team(name, subcategory, force_size=None):
         nonlocal user_index
         nonlocal team_index  # Use team_index for team code
         # Generate a unique team code
@@ -1017,9 +1020,12 @@ def ensure_minimum_subcategory_teams(session: Session,
         session.add(team)
         session.flush()  # Flush to get the team ID
 
-        # Create 3 participants (including captain) for this team
+        # Determine team size - either forced or random between 2-4
+        team_size = force_size if force_size is not None else random.randint(
+            2, 4)
+
         participants = []
-        for i in range(3):
+        for i in range(team_size):
             if user_index < len(available_users):
                 participant = Participant(
                     competition_id=comp.id,
@@ -1037,13 +1043,25 @@ def ensure_minimum_subcategory_teams(session: Session,
     lower_subcategory_teams = []
     lower_subcategory_participants = []
 
+    # First, create one special invalid team with only 1 person
+    # in the lower subcategory
+    if lower_teams_to_add > 0:
+        team_name = "Single Member Team"
+        team, participants = create_team(team_name,
+                                         MarathonSubCategory.lt_6B,
+                                         force_size=1)
+        lower_subcategory_teams.append(team)
+        lower_subcategory_participants.extend(participants)
+        lower_teams_to_add -= 1  # Reduce the count since we created one team
+
+    # Create remaining lower subcategory teams with 2-4 people
     for i in range(lower_teams_to_add):
         team_name = f"Lower Grade Team {i+1}"
         team, participants = create_team(team_name, MarathonSubCategory.lt_6B)
         lower_subcategory_teams.append(team)
         lower_subcategory_participants.extend(participants)
 
-    # Create teams for higher subcategory (6B and above)
+    # Create teams for higher subcategory (6B and above) with 2-4 people
     higher_subcategory_teams = []
     higher_subcategory_participants = []
 
@@ -1122,11 +1140,13 @@ def ensure_minimum_subcategory_teams(session: Session,
         selected_routes = random.sample(available_routes, ascent_count)
 
         for route in selected_routes:
+            # Randomly set status with 90% chance of being True
+            status = random.random() < ASCENT_APPROVAL_RATE
             ascent = Ascent(competition_id=comp.id,
                             participant_id=participant.id,
                             route_id=route.id,
                             team_id=participant.team_id,
-                            status=True)
+                            status=status)  # 10% chance of being False
             all_ascents.append(ascent)
 
     # Create ascents for higher subcategory participants
@@ -1146,11 +1166,13 @@ def ensure_minimum_subcategory_teams(session: Session,
         selected_routes = random.sample(available_routes, ascent_count)
 
         for route in selected_routes:
+            # Randomly set status with 90% chance of being True
+            status = random.random() < ASCENT_APPROVAL_RATE
             ascent = Ascent(competition_id=comp.id,
                             participant_id=participant.id,
                             route_id=route.id,
                             team_id=participant.team_id,
-                            status=True)
+                            status=status)  # 10% chance of being False
             all_ascents.append(ascent)
 
     # Add all ascents to the database
