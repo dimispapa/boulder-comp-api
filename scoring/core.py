@@ -269,28 +269,77 @@ class ScoreCalculator:
             raise
 
     async def _get_master_grade_teams(
-            self, ascents_df: pd.DataFrame) -> Dict[str, str]:
+            self, ascents_df: pd.DataFrame) -> Dict[str, List[str]]:
         """
         Find teams with most ascents per grade.
+
+        For each grade, identifies all teams that have the maximum number of
+        unique route ascents. Multiple teams can share the master bonus for a
+        grade if they have the same number of unique ascents.
+
+        Args:
+            ascents_df (pd.DataFrame): DataFrame containing all ascents
+
+        Returns:
+            Dict[str, List[str]]: Dictionary mapping grades to lists of
+            team IDs that share the master bonus
         """
-        # Find teams with most ascents per grade
-        grade_team_counts = ascents_df.groupby(
-            ["grade", "team_id"]).size().reset_index(name="ascent_count")
+        # Count unique routes per team per grade
+        # First groupby creates a count of ascents
+        # per unique (grade, team_id, route_id)
+        # Second groupby counts number of unique routes per (grade, team_id)
+        grade_team_counts = (ascents_df.groupby([
+            "grade", "team_id", "route_id"
+        ]).size().reset_index(name="ascent_count").groupby(
+            ["grade", "team_id"]).size().reset_index(name="unique_routes"))
+        logger.debug(f"Grade team counts: {grade_team_counts}")
         master_grade_teams = {}
 
+        # For each grade, find all teams that have the maximum number
+        # of unique routes
         for grade in grade_team_counts["grade"].unique():
             grade_df = grade_team_counts[grade_team_counts["grade"] == grade]
             if not grade_df.empty:
-                max_team = grade_df.loc[grade_df["ascent_count"].idxmax()]
-                master_grade_teams[grade] = max_team["team_id"]
+                max_routes = grade_df["unique_routes"].max()
+                # Get all teams that have this maximum number of routes
+                top_teams = grade_df[grade_df["unique_routes"] ==
+                                     max_routes]["team_id"].tolist()
+                master_grade_teams[grade] = top_teams
+
+                # Log the teams sharing the master bonus for this grade
+                logger.debug(
+                    f"Grade {grade}: {len(top_teams)} teams share master "
+                    f"share master bonus with {max_routes} unique ascents: "
+                    f"{top_teams}")
+
+        logger.debug(f"Master grade teams: {master_grade_teams}")
 
         return master_grade_teams
 
     async def _get_unique_ascents(self, ascents_df: pd.DataFrame) -> Set[str]:
         """
         Get unique ascents from an ascents DataFrame.
+
+        A unique ascent is a route that was climbed only once
+        in the entire competition across all teams. If a route
+        was climbed multiple times but all ascents were by
+        participants of the same team, it's still not considered
+        unique.
+
+        Args:
+            ascents_df (pd.DataFrame): DataFrame containing all ascents
+
+        Returns:
+            Set[str]: Set of route_ids that were climbed only once
         """
-        unique_routes = set(ascents_df["route_id"].unique())
+        # Count occurrences of each route_id
+        route_counts = ascents_df["route_id"].value_counts()
+
+        # Filter for routes that were climbed exactly once
+        unique_routes = set(route_counts[route_counts == 1].index)
+
+        logger.debug(f"Found {len(unique_routes)} unique ascents out of "
+                     f"{len(route_counts)} total routes")
         return unique_routes
 
     async def _calculate_route_team_bonus(
@@ -324,12 +373,17 @@ class ScoreCalculator:
             team_df: pd.DataFrame) -> Tuple[float, List[str]]:
         """
         Calculate the master grade bonus for a team.
-        This bonus is awarded to teams that have the most ascents for
-        each grade.
+        This bonus is awarded to teams that have the most unique ascents for
+        each grade. If multiple teams tie for most ascents in a grade, they
+        share the bonus equally (bonus is divided by number of tied teams).
+
+        Args:
+            team_id (str): ID of the team to calculate bonus for
+            team_df (pd.DataFrame): DataFrame containing team's ascents
 
         Returns:
-            Tuple containing the master grade bonus score and a list of
-            master grades
+            Tuple[float, List[str]]: (total master grade bonus,
+            list of mastered grades)
         """
         master_grade_bonus = 0.0
         master_grades = []
@@ -337,8 +391,21 @@ class ScoreCalculator:
         if self.scoring_config.get("master_grade_bonus_factor"):
             bonus_factor = self.scoring_config["master_grade_bonus_factor"]
 
-            for grade, master_team in self.master_grade_teams.items():
-                if master_team == team_id:
+            # Add debug logging to help diagnose the issue
+            logger.debug(f"Calculating master grade bonus for team {team_id}")
+            logger.debug(
+                f"Master grade teams mapping: {self.master_grade_teams}")
+
+            for grade, teams in self.master_grade_teams.items():
+                # Debug logging for each grade check
+                logger.debug(f"Checking grade {grade} with teams {teams}")
+                logger.debug(f"Team {team_id} type: {type(team_id)}")
+                logger.debug(f"Teams list types: {[type(t) for t in teams]}")
+
+                # Convert team_id to string for comparison if needed
+                team_id_str = str(team_id)
+                if team_id_str in [str(t)
+                                   for t in teams]:  # Compare string versions
                     master_grades.append(grade)
                     # Get all routes of this grade climbed by the team
                     grade_routes = team_df[team_df["grade"] == grade]
@@ -346,14 +413,26 @@ class ScoreCalculator:
                     # Sum the base points for all routes of this grade
                     grade_points = grade_routes["base_points"].sum()
 
-                    # Apply the bonus factor
-                    grade_bonus = grade_points * bonus_factor
+                    # Apply the bonus factor and divide by number of tied teams
+                    num_tied_teams = len(teams)
+                    grade_bonus = (grade_points *
+                                   bonus_factor) / num_tied_teams
 
                     master_grade_bonus += grade_bonus
 
                     # Debug log
-                    logger.debug(f"Team {team_id} gets master grade bonus of "
-                                 f"{grade_bonus} for grade {grade}")
+                    logger.debug(
+                        f"Team {team_id} shares master grade bonus for "
+                        f"{grade}: base points={grade_points}, "
+                        f"bonus_factor={bonus_factor}, shared among "
+                        f"{num_tied_teams} teams, final bonus={grade_bonus}")
+                else:
+                    logger.debug(
+                        f"Team {team_id} not in master teams for grade {grade}"
+                    )
+
+        logger.debug(f"Final master grade bonus for team {team_id}: "
+                     f"{master_grade_bonus} for grades {master_grades}")
 
         return master_grade_bonus, master_grades
 
@@ -380,23 +459,53 @@ class ScoreCalculator:
                                              base_points: float) -> float:
         """
         Calculate unique ascent bonus for a route.
+
+        A unique ascent bonus is awarded for routes that were climbed only
+        once in the entire competition across all teams.
+
+        Args:
+            route_id (str): ID of the route
+            base_points (float): Base points for the route
+
+        Returns:
+            float: Unique ascent bonus for the route
         """
         route_unique_bonus = 0
-        is_unique = route_id in self.unique_routes
-        if is_unique:
+        if route_id in self.unique_routes:
             route_unique_bonus = base_points * self.scoring_config[
                 "unique_bonus_factor"]
+            logger.debug(f"Route {route_id} awarded unique ascent bonus of "
+                         f"{route_unique_bonus}")
 
         return route_unique_bonus
 
-    async def _calculate_volume_bonus(self, total_ascents: int) -> float:
+    async def _calculate_volume_bonus(self,
+                                      team_ascents_df: pd.DataFrame) -> float:
         """
         Calculate volume bonus for a given number of ascents.
+
+        Note: This is different from the unique ascent bonus.
+        The volume bonus rewards teams for the total number of
+        unique problems they climbed regardless of whether
+        those problems were climbed by other teams. The unique
+        ascent bonus rewards ascents of problems that were only
+        climbed once in the entire competition.
+
+        Args:
+            team_ascents_df (pd.DataFrame): DataFrame of team ascents
+            total_ascents (int): Total number of ascents by the team
+
+        Returns:
+            float: Volume bonus score
         """
+        # fetch volume bonus config
         volume_bonus_increment = self.scoring_config["volume_bonus"][
             "increment"]
         volume_bonus_points = self.scoring_config["volume_bonus"]["points"]
-        volume_bonus = (total_ascents //
+        # get unique problems climbed by the team
+        unique_problems = set(team_ascents_df["route_id"].unique())
+        # calculate volume bonus
+        volume_bonus = (len(unique_problems) //
                         volume_bonus_increment) * volume_bonus_points
 
         return volume_bonus
@@ -415,12 +524,15 @@ class ScoreCalculator:
         logger.info("Starting Marathon score calculation with "
                     f"{len(team_ascents_df)} ascents")
 
-        # 1. Calculate unique ascents (routes climbed by only one person)
+        # 1. Calculate unique ascents (routes climbed by only one person
+        # across all teams)
         self.unique_routes = await self._get_unique_ascents(team_ascents_df)
 
         # 2. Find teams with most ascents per grade (for master grade bonus)
         self.master_grade_teams = await self._get_master_grade_teams(
             team_ascents_df)
+        logger.debug(
+            f"Populated master_grade_teams: {self.master_grade_teams}")
 
         # 3. Calculate team scores
         team_scores = []
@@ -577,15 +689,28 @@ class ScoreCalculator:
                     route_remote_bonus
                 })
 
-            # Calculate volume bonus
+            # Calculate total ascents
             total_ascents = len(team_df)
-            volume_bonus = await self._calculate_volume_bonus(total_ascents)
+
+            # Calculate volume bonus
+            volume_bonus = await self._calculate_volume_bonus(team_df)
+
+            # Add debug logging before the call
+            logger.debug(
+                f"About to calculate master grade bonus for team {team_id}")
+            logger.debug(
+                f"Current master_grade_teams: {self.master_grade_teams}")
 
             # Calculate master grade bonus
-            if team_id in self.master_grade_teams.values():
+            if self.master_grade_teams:  # Add explicit check
                 master_grade_bonus, master_grades = \
-                    await self._calculate_master_grade_bonus(team_id, team_df)
+                    await self._calculate_master_grade_bonus(
+                        team_id, team_df)
+                logger.debug(
+                    f"Calculated master grade bonus: {master_grade_bonus}")
             else:
+                logger.debug(
+                    "No master grade teams found, skipping bonus calculation")
                 master_grade_bonus = 0
                 master_grades = []
 
@@ -597,7 +722,8 @@ class ScoreCalculator:
             total_score = (base_score + volume_bonus + team_ascent_bonus +
                            unique_ascent_bonus + master_grade_bonus +
                            remote_boulder_bonus)
-            normalized_score = total_score / team_size
+            normalized_total_score = (
+                (total_score - volume_bonus) / team_size) + volume_bonus
 
             # Create team score entry
             team_score = {
@@ -606,13 +732,13 @@ class ScoreCalculator:
                 "team_name": team_name,
                 "team_size": team_size,
                 "base_score": base_score,
-                "volume_bonus": volume_bonus,
                 "team_ascent_bonus": team_ascent_bonus,
                 "unique_ascent_bonus": unique_ascent_bonus,
                 "master_grade_bonus": master_grade_bonus,
                 "remote_boulder_bonus": remote_boulder_bonus,
+                "volume_bonus": volume_bonus,
                 "total_score": total_score,
-                "normalized_score": normalized_score,
+                "normalized_total_score": normalized_total_score,
                 "marathon_subcategory":
                 subcategory.value if subcategory else None,
                 "ranking": None  # Will be set after sorting
@@ -625,17 +751,25 @@ class ScoreCalculator:
                 "team_size": team_size,
                 "routes": detailed_routes,
                 "total_ascents": total_ascents,
-                "volume_bonus": volume_bonus,
+                "base_score": base_score,
                 "team_completed_routes": team_completed_routes,
                 "team_unique_routes": team_unique_routes,
                 "master_grades": master_grades,
                 "master_grade_bonus": master_grade_bonus,
                 "remote_boulder_bonus": remote_boulder_bonus,
-                "base_score": base_score,
                 "team_ascent_bonus": team_ascent_bonus,
                 "unique_ascent_bonus": unique_ascent_bonus,
                 "total_score": total_score,
-                "normalized_score": normalized_score,
+                "normalized_base_score": base_score / team_size,
+                "normalized_team_ascent_bonus": team_ascent_bonus / team_size,
+                "normalized_unique_ascent_bonus":
+                unique_ascent_bonus / team_size,
+                "normalized_master_grade_bonus":
+                master_grade_bonus / team_size,
+                "normalized_remote_boulder_bonus":
+                remote_boulder_bonus / team_size,
+                "volume_bonus": volume_bonus,
+                "normalized_total_score": normalized_total_score,
                 "marathon_subcategory":
                 subcategory.value if subcategory else None,
                 "ranking": None  # Add ranking field, to be set after sorting
@@ -674,7 +808,7 @@ class ScoreCalculator:
 
             # Sort teams by normalized score
             sorted_teams = sorted(teams,
-                                  key=lambda x: x["normalized_score"],
+                                  key=lambda x: x["normalized_total_score"],
                                   reverse=True)
 
             # Assign rankings within subcategory

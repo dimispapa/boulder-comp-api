@@ -408,7 +408,7 @@ def create_or_update_marathon_ranking(
         existing.master_grade_bonus = ranking.master_grade_bonus
         existing.team_ascent_bonus = ranking.team_ascent_bonus
         existing.total_score = ranking.total_score
-        existing.normalized_score = ranking.normalized_score
+        existing.normalized_total_score = ranking.normalized_total_score
         existing.rank = ranking.rank
         existing.marathon_subcategory = ranking.marathon_subcategory
         existing.updated_at = datetime.now(UTC)
@@ -479,7 +479,17 @@ def create_or_update_marathon_detailed_results(
         existing.team_ascent_bonus = results.team_ascent_bonus
         existing.unique_ascent_bonus = results.unique_ascent_bonus
         existing.total_score = results.total_score
-        existing.normalized_score = results.normalized_score
+        existing.normalized_base_score = results.normalized_base_score
+        existing.normalized_volume_bonus = results.normalized_volume_bonus
+        existing.normalized_team_ascent_bonus = (
+            results.normalized_team_ascent_bonus)
+        existing.normalized_unique_ascent_bonus = (
+            results.normalized_unique_ascent_bonus)
+        existing.normalized_master_grade_bonus = (
+            results.normalized_master_grade_bonus)
+        existing.normalized_remote_boulder_bonus = (
+            results.normalized_remote_boulder_bonus)
+        existing.normalized_total_score = results.normalized_total_score
         existing.rank = results.rank
         existing.marathon_subcategory = results.marathon_subcategory
         existing.updated_at = datetime.now(UTC)

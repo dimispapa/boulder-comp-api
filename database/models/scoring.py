@@ -123,7 +123,7 @@ class MarathonRanking(SQLModel, table=True):
     master_grade_bonus: float
     remote_boulder_bonus: float
     total_score: float
-    normalized_score: float
+    normalized_total_score: float
     rank: int
     marathon_subcategory: Optional[MarathonSubCategory] = Field(default=None)
     inserted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -156,7 +156,13 @@ class MarathonDetailedResults(SQLModel, table=True):
     team_ascent_bonus: float
     unique_ascent_bonus: float
     total_score: float
-    normalized_score: float
+    normalized_base_score: float
+    normalized_volume_bonus: float
+    normalized_team_ascent_bonus: float
+    normalized_unique_ascent_bonus: float
+    normalized_master_grade_bonus: float
+    normalized_remote_boulder_bonus: float
+    normalized_total_score: float
     rank: int
     marathon_subcategory: Optional[MarathonSubCategory] = Field(default=None)
     inserted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

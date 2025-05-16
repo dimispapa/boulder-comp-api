@@ -57,7 +57,7 @@ async def store_results(session: Session,
                     logger.debug(
                         f"Creating MarathonRanking for team "
                         f"{score['team_id']} (rank {score['ranking']}) "
-                        f"with score {score['normalized_score']}")
+                        f"with score {score['normalized_total_score']}")
 
                     ranking_model = MarathonRanking(
                         competition_id=uuid.UUID(comp_id),
@@ -82,8 +82,9 @@ async def store_results(session: Session,
                                 score["remote_boulder_bonus"])),
                         total_score=float(
                             convert_to_python_type(score["total_score"])),
-                        normalized_score=float(
-                            convert_to_python_type(score["normalized_score"])),
+                        normalized_total_score=float(
+                            convert_to_python_type(
+                                score["normalized_total_score"])),
                         marathon_subcategory=score.get("marathon_subcategory"),
                         rank=int(convert_to_python_type(score["ranking"])))
 
@@ -155,9 +156,28 @@ async def store_results(session: Session,
                             total_score=float(
                                 convert_to_python_type(
                                     calculation["total_score"])),
-                            normalized_score=float(
+                            normalized_base_score=float(
                                 convert_to_python_type(
-                                    calculation["normalized_score"])),
+                                    calculation["normalized_base_score"])),
+                            normalized_volume_bonus=float(
+                                convert_to_python_type(
+                                    calculation["normalized_volume_bonus"])),
+                            normalized_team_ascent_bonus=float(
+                                convert_to_python_type(
+                                    calculation["normalized_team_ascent_bonus"]
+                                )),
+                            normalized_unique_ascent_bonus=float(
+                                convert_to_python_type(calculation[
+                                    "normalized_unique_ascent_bonus"])),
+                            normalized_master_grade_bonus=float(
+                                convert_to_python_type(calculation[
+                                    "normalized_master_grade_bonus"])),
+                            normalized_remote_boulder_bonus=float(
+                                convert_to_python_type(calculation[
+                                    "normalized_remote_boulder_bonus"])),
+                            normalized_total_score=float(
+                                convert_to_python_type(
+                                    calculation["normalized_total_score"])),
                             marathon_subcategory=calculation.get(
                                 "marathon_subcategory"),
                             rank=int(

@@ -211,8 +211,9 @@ async def get_competition_rankings(comp_id: str,
                         "unique_ascent_bonus": rank.unique_ascent_bonus,
                         "team_ascent_bonus": rank.team_ascent_bonus,
                         "master_grade_bonus": rank.master_grade_bonus,
+                        "remote_boulder_bonus": rank.remote_boulder_bonus,
                         "total_score": rank.total_score,
-                        "normalized_score": rank.normalized_score,
+                        "normalized_total_score": rank.normalized_total_score,
                         "rank": rank.rank,
                         "subcategory": rank.marathon_subcategory
                     }
@@ -266,8 +267,10 @@ async def get_competition_rankings(comp_id: str,
                         str(rank.id),
                         "participant_id":
                         str(rank.participant_id),
-                        "top_grades":
-                        rank.top_grades_dict,
+                        "top_5_routes":
+                        rank.top_5_routes,
+                        "top_5_routes_score":
+                        rank.top_5_routes_score,
                         "total_score":
                         rank.total_score,
                         "rank":
@@ -315,8 +318,9 @@ async def get_competition_rankings(comp_id: str,
                     "unique_ascent_bonus": rank.unique_ascent_bonus,
                     "team_ascent_bonus": rank.team_ascent_bonus,
                     "master_grade_bonus": rank.master_grade_bonus,
+                    "remote_boulder_bonus": rank.remote_boulder_bonus,
                     "total_score": rank.total_score,
-                    "normalized_score": rank.normalized_score,
+                    "normalized_total_score": rank.normalized_total_score,
                     "rank": rank.rank
                 })
 
@@ -327,8 +331,10 @@ async def get_competition_rankings(comp_id: str,
                     str(rank.id),
                     "participant_id":
                     str(rank.participant_id),
-                    "top_grades":
-                    rank.top_grades_dict,
+                    "top_5_routes":
+                    rank.top_5_routes,
+                    "top_5_routes_score":
+                    rank.top_5_routes_score,
                     "total_score":
                     rank.total_score,
                     "rank":

@@ -70,36 +70,52 @@ def get_competition_participants(
         elif participant.team_id and participant.team_is_valid:
             if participant.team_id in teams_dict:
                 team_name = teams_dict[participant.team_id].name
+                subcategory = teams_dict[
+                    participant.team_id].marathon_subcategory
                 if team_name not in team_participants_by_team:
                     team_participants_by_team[team_name] = []
-                team_participants_by_team[team_name].append(participant)
+                team_participants_by_team[team_name].append(
+                    (participant, subcategory))
 
     return solo_participants, team_participants_by_team
 
 
 def prepare_competition_participant_data(
-        participants: List[Participant]) -> List[List[str]]:
+        participants: List[Tuple[Participant, str]]) -> List[List[str]]:
     """
     Prepare competition participant data for Google Sheets.
 
     Args:
-        participants: List of competition participants
+        participants: List of tuples containing (participant, subcategory)
 
     Returns:
         List of rows for Google Sheets
     """
     # Headers
-    headers = ['Full Name', 'Email', 'Signed Waiver', 'Registration Date']
+    headers = [
+        'Full Name', 'Email', 'Signed Waiver', 'Registration Date',
+        'Subcategory'
+    ]
 
     # Data rows
     rows = [headers]
-    for participant in participants:
+    for participant_tuple in participants:
+        # Handle both solo participants (no subcategory) and team participants
+        if isinstance(participant_tuple, tuple):
+            participant, subcategory = participant_tuple
+            subcategory_value = subcategory.value if subcategory else 'None'
+        else:
+            participant = participant_tuple
+            # Solo participants don't have subcategory
+            subcategory_value = 'None'
+
         user = participant.user
         if user:
             rows.append([
                 f"{user.first_name} {user.last_name}", user.email,
                 'Yes' if participant.signed_waiver else 'No',
-                participant.inserted_at.strftime('%Y-%m-%d %H:%M:%S')
+                participant.inserted_at.strftime('%Y-%m-%d %H:%M:%S'),
+                subcategory_value
             ])
 
     return rows
@@ -165,7 +181,10 @@ def export_competition_to_sheet(competition_id: UUID):
             get_competition_participants(session, competition_id))
 
         # Export solo participants
-        solo_rows = prepare_competition_participant_data(solo_participants)
+        solo_participants_with_none = [(p, None) for p in solo_participants
+                                       ]  # Add None for subcategory
+        solo_rows = prepare_competition_participant_data(
+            solo_participants_with_none)
         client.write_data(spreadsheet_id, "Solo Participants!A1", solo_rows)
         print(f"Exported {len(solo_participants)} solo participants")
 

@@ -605,7 +605,7 @@ Common errors without `--build`:
 | `team_ascent_bonus` | float               | Bonus based on team size               |
 | `master_grade_bonus`| float               | Bonus for mastering grades             |
 | `total_score`       | float               | Total unadjusted score                 |
-| `normalized_score`  | float               | Score normalized for team size         |
+| `normalized_total_score`  | float               | Score normalized for team size         |
 | `rank`              | int                 | Final ranking position                 |
 | `inserted_at`        | timestamp           | When calculated                        |
 | `updated_at`        | timestamp           | Last updated                           |
@@ -630,7 +630,7 @@ Common errors without `--build`:
 | `team_ascent_bonus`  | float               | Bonus based on team size               |
 | `unique_ascent_bonus`| float               | Bonus for unique routes                |
 | `total_score`        | float               | Total unadjusted score                 |
-| `normalized_score`   | float               | Score normalized for team size         |
+| `normalized_total_score`   | float               | Score normalized for team size         |
 | `inserted_at`         | timestamp           | When calculated                        |
 | `updated_at`         | timestamp           | Last updated                           |
 
