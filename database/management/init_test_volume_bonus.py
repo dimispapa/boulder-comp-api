@@ -24,6 +24,9 @@ from database.models.competitions import (Competition, CompetitionCategory,
 from database.models.crags import Route
 from database.models.accounts import User
 from database.crud.crags import get_crag_by_name
+from database.models.scoring import (BasePoints, VolumeBonus,
+                                     UniqueAscentBonus, TeamAscentBonus,
+                                     MasterGradeBonus)
 
 # Constants
 UTC = ZoneInfo("UTC")
@@ -306,6 +309,113 @@ def create_test_ascents(session: Session, comp_id: int, routes: list):
         return []
 
 
+def create_test_scoring_config(session: Session, comp_id: uuid.UUID):
+    """
+    Create scoring configuration for the test competition.
+
+    Copies the global default configurations (with null competition_id)
+    to competition-specific entries.
+
+    Args:
+        session: Database session
+        comp_id: Competition ID to associate with the scoring config
+    """
+    logger.info(
+        f"Creating scoring configuration for test competition {comp_id}")
+
+    # Check if scoring config already exists for this competition
+    existing_config = session.exec(
+        select(BasePoints).where(
+            BasePoints.competition_id == comp_id)).first()
+
+    if existing_config:
+        logger.info(
+            "Scoring configuration already exists for this competition, "
+            "skipping creation")
+        return
+
+    # 1. Copy BasePoints
+    global_base_points = session.exec(
+        select(BasePoints).where(BasePoints.competition_id.is_(None))).all()
+
+    comp_base_points = []
+    for bp in global_base_points:
+        comp_bp = BasePoints(competition_id=comp_id,
+                             grade=bp.grade,
+                             points=bp.points,
+                             increment_factor=bp.increment_factor)
+        comp_base_points.append(comp_bp)
+
+    if comp_base_points:
+        session.add_all(comp_base_points)
+        session.commit()
+        logger.info(f"Created {len(comp_base_points)} base points configs for "
+                    f"competition {comp_id}")
+
+    # 2. Copy VolumeBonus
+    global_volume_bonus = session.exec(
+        select(VolumeBonus).where(VolumeBonus.competition_id.is_(None))).all()
+
+    for vb in global_volume_bonus:
+        comp_vb = VolumeBonus(competition_id=comp_id,
+                              bonus_increment=vb.bonus_increment,
+                              points_per_increment=vb.points_per_increment)
+        session.add(comp_vb)
+
+    if global_volume_bonus:
+        session.commit()
+        logger.info(f"Created volume bonus config for competition {comp_id}")
+
+    # 3. Copy UniqueAscentBonus
+    global_unique_bonus = session.exec(
+        select(UniqueAscentBonus).where(
+            UniqueAscentBonus.competition_id.is_(None))).all()
+
+    for ub in global_unique_bonus:
+        comp_ub = UniqueAscentBonus(competition_id=comp_id,
+                                    bonus_factor=ub.bonus_factor)
+        session.add(comp_ub)
+
+    if global_unique_bonus:
+        session.commit()
+        logger.info(
+            f"Created unique ascent bonus config for competition {comp_id}")
+
+    # 4. Copy TeamAscentBonus
+    global_team_bonus = session.exec(
+        select(TeamAscentBonus).where(
+            TeamAscentBonus.competition_id.is_(None))).all()
+
+    for tb in global_team_bonus:
+        comp_tb = TeamAscentBonus(competition_id=comp_id,
+                                  team_size=tb.team_size,
+                                  bonus_factor=tb.bonus_factor)
+        session.add(comp_tb)
+
+    if global_team_bonus:
+        session.commit()
+        logger.info(
+            f"Created team ascent bonus configs for competition {comp_id}")
+
+    # 5. Copy MasterGradeBonus
+    global_master_bonus = session.exec(
+        select(MasterGradeBonus).where(
+            MasterGradeBonus.competition_id.is_(None))).all()
+
+    for mb in global_master_bonus:
+        comp_mb = MasterGradeBonus(competition_id=comp_id,
+                                   bonus_factor=mb.bonus_factor)
+        session.add(comp_mb)
+
+    if global_master_bonus:
+        session.commit()
+        logger.info(
+            f"Created master grade bonus config for competition {comp_id}")
+
+    logger.info(
+        f"Complete scoring configuration created for competition {comp_id}")
+
+
 def initialize_test_scoring_data(session: Session):
     """Initialize test competition with specific team sizes
        and ascents for scoring tests."""
@@ -316,6 +426,9 @@ def initialize_test_scoring_data(session: Session):
     if not comp:
         logger.error("Failed to get or create competition. Exiting.")
         return
+
+    # Create scoring configuration for the test competition
+    create_test_scoring_config(session, comp.id)
 
     # Calculate total number of users needed
     total_users_needed = sum(tc["size"] for tc in TEAM_CONFIGS)
@@ -339,6 +452,7 @@ def initialize_test_scoring_data(session: Session):
     logger.info(f"- {len(teams)} teams: {', '.join([t.name for t in teams])}")
     logger.info(f"- {NUM_PROBLEMS} boulders, each with 1 route")
     logger.info("- Ascents for all participants on all routes")
+    logger.info("- Complete scoring configuration")
 
 
 if __name__ == "__main__":

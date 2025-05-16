@@ -146,7 +146,6 @@ class MarathonDetailedResults(SQLModel, table=True):
     team_size: int
     routes: dict = Field(sa_type=JSONB)  # Detailed routes information
     total_ascents: int
-    volume_bonus: float
     team_completed_routes: int
     team_unique_routes: int
     master_grades: dict = Field(sa_type=JSONB)  # Master grades information
@@ -157,7 +156,7 @@ class MarathonDetailedResults(SQLModel, table=True):
     unique_ascent_bonus: float
     total_score: float
     normalized_base_score: float
-    normalized_volume_bonus: float
+    volume_bonus: float
     normalized_team_ascent_bonus: float
     normalized_unique_ascent_bonus: float
     normalized_master_grade_bonus: float

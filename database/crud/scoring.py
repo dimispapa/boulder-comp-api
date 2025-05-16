@@ -470,7 +470,6 @@ def create_or_update_marathon_detailed_results(
         existing.team_size = results.team_size
         existing.routes = results.routes
         existing.total_ascents = results.total_ascents
-        existing.volume_bonus = results.volume_bonus
         existing.team_completed_routes = results.team_completed_routes
         existing.team_unique_routes = results.team_unique_routes
         existing.master_grades = results.master_grades
@@ -480,7 +479,7 @@ def create_or_update_marathon_detailed_results(
         existing.unique_ascent_bonus = results.unique_ascent_bonus
         existing.total_score = results.total_score
         existing.normalized_base_score = results.normalized_base_score
-        existing.normalized_volume_bonus = results.normalized_volume_bonus
+        existing.volume_bonus = results.volume_bonus
         existing.normalized_team_ascent_bonus = (
             results.normalized_team_ascent_bonus)
         existing.normalized_unique_ascent_bonus = (

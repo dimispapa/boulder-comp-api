@@ -130,9 +130,6 @@ async def store_results(session: Session,
                             total_ascents=int(
                                 convert_to_python_type(
                                     calculation["total_ascents"])),
-                            volume_bonus=float(
-                                convert_to_python_type(
-                                    calculation["volume_bonus"])),
                             # Store the count of completed routes, not the list
                             team_completed_routes=team_completed_routes_count,
                             # Store the count of unique routes, not the list
@@ -159,9 +156,9 @@ async def store_results(session: Session,
                             normalized_base_score=float(
                                 convert_to_python_type(
                                     calculation["normalized_base_score"])),
-                            normalized_volume_bonus=float(
+                            volume_bonus=float(
                                 convert_to_python_type(
-                                    calculation["normalized_volume_bonus"])),
+                                    calculation["volume_bonus"])),
                             normalized_team_ascent_bonus=float(
                                 convert_to_python_type(
                                     calculation["normalized_team_ascent_bonus"]
