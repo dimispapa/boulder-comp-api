@@ -284,6 +284,17 @@ class ScoreCalculator:
             Dict[str, List[str]]: Dictionary mapping grades to lists of
             team IDs that share the master bonus
         """
+        # If DataFrame is empty, return empty result
+        if ascents_df.empty:
+            logger.warning(
+                "Empty DataFrame provided for master grade calculation")
+            return {}
+
+        # Ensure team_id is string type for consistent comparison
+        ascents_df = ascents_df.copy()
+        if "team_id" in ascents_df.columns:
+            ascents_df["team_id"] = ascents_df["team_id"].astype(str)
+
         # Count unique routes per team per grade
         # First groupby creates a count of ascents
         # per unique (grade, team_id, route_id)
@@ -292,27 +303,50 @@ class ScoreCalculator:
             "grade", "team_id", "route_id"
         ]).size().reset_index(name="ascent_count").groupby(
             ["grade", "team_id"]).size().reset_index(name="unique_routes"))
-        logger.debug(f"Grade team counts: {grade_team_counts}")
+
+        logger.debug(f"Grade team counts shape: {grade_team_counts.shape}")
+        if not grade_team_counts.empty:
+            logger.debug(
+                f"Sample of grade team counts: "
+                f"{grade_team_counts.head().to_dict(orient='records')}")
+
         master_grade_teams = {}
 
         # For each grade, find all teams that have the maximum number
         # of unique routes
-        for grade in grade_team_counts["grade"].unique():
+        for grade in sorted(grade_team_counts["grade"].unique()):
             grade_df = grade_team_counts[grade_team_counts["grade"] == grade]
             if not grade_df.empty:
                 max_routes = grade_df["unique_routes"].max()
                 # Get all teams that have this maximum number of routes
-                top_teams = grade_df[grade_df["unique_routes"] ==
-                                     max_routes]["team_id"].tolist()
+                # Ensure all team IDs are strings
+                top_teams = [
+                    str(team_id)
+                    for team_id in grade_df[grade_df["unique_routes"] ==
+                                            max_routes]["team_id"].tolist()
+                ]
                 master_grade_teams[grade] = top_teams
 
                 # Log the teams sharing the master bonus for this grade
                 logger.debug(
                     f"Grade {grade}: {len(top_teams)} teams share master "
-                    f"share master bonus with {max_routes} unique ascents: "
+                    f"bonus with {max_routes} unique ascents: "
                     f"{top_teams}")
 
+        # Log entire master grade teams dictionary
         logger.debug(f"Master grade teams: {master_grade_teams}")
+
+        # Write to debug file for inspection
+        try:
+            import json
+            import os
+            debug_dir = os.path.join("data", "debug")
+            os.makedirs(debug_dir, exist_ok=True)
+            with open(os.path.join(debug_dir, "master_grade_teams.json"),
+                      "w") as f:
+                json.dump(master_grade_teams, f, indent=2)
+        except Exception as e:
+            logger.warning(f"Failed to write debug file: {e}")
 
         return master_grade_teams
 
@@ -342,9 +376,9 @@ class ScoreCalculator:
                      f"{len(route_counts)} total routes")
         return unique_routes
 
-    async def _calculate_route_team_bonus(
-            self, route_df: pd.DataFrame, base_points: float,
-            team_size: int) -> Tuple[float, float]:
+    async def _calculate_route_team_bonus(self, route_df: pd.DataFrame,
+                                          base_points: float,
+                                          team_size: int) -> float:
         """
         Calculate team ascent bonus for a given route.
 
@@ -388,30 +422,36 @@ class ScoreCalculator:
         master_grade_bonus = 0.0
         master_grades = []
 
-        if self.scoring_config.get("master_grade_bonus_factor"):
+        # Always ensure team_id is a string for comparison
+        team_id_str = str(team_id)
+
+        if self.scoring_config.get(
+                "master_grade_bonus_factor") and self.master_grade_teams:
             bonus_factor = self.scoring_config["master_grade_bonus_factor"]
 
             # Add debug logging to help diagnose the issue
-            logger.debug(f"Calculating master grade bonus for team {team_id}")
             logger.debug(
-                f"Master grade teams mapping: {self.master_grade_teams}")
+                f"Calculating master grade bonus for team {team_id_str}")
+            logger.debug("Available grades in master_grade_teams: "
+                         f"{list(self.master_grade_teams.keys())}")
 
             for grade, teams in self.master_grade_teams.items():
-                # Debug logging for each grade check
-                logger.debug(f"Checking grade {grade} with teams {teams}")
-                logger.debug(f"Team {team_id} type: {type(team_id)}")
-                logger.debug(f"Teams list types: {[type(t) for t in teams]}")
+                # Ensure all team IDs in the list are strings
+                teams_str = [str(t) for t in teams]
 
-                # Convert team_id to string for comparison if needed
-                team_id_str = str(team_id)
-                if team_id_str in [str(t)
-                                   for t in teams]:  # Compare string versions
+                # Check if this team is a master for this grade
+                if team_id_str in teams_str:
                     master_grades.append(grade)
+
                     # Get all routes of this grade climbed by the team
                     grade_routes = team_df[team_df["grade"] == grade]
 
-                    # Sum the base points for all routes of this grade
-                    grade_points = grade_routes["base_points"].sum()
+                    # Get unique routes by dropping duplicates
+                    unique_grade_routes = grade_routes.drop_duplicates(
+                        subset=["route_id"])
+
+                    # Sum the base points for all unique routes of this grade
+                    grade_points = unique_grade_routes["base_points"].sum()
 
                     # Apply the bonus factor and divide by number of tied teams
                     num_tied_teams = len(teams)
@@ -422,16 +462,17 @@ class ScoreCalculator:
 
                     # Debug log
                     logger.debug(
-                        f"Team {team_id} shares master grade bonus for "
-                        f"{grade}: base points={grade_points}, "
+                        f"Team {team_id_str} shares master grade bonus for "
+                        f"{grade}: unique routes={len(unique_grade_routes)}, "
+                        f"base points={grade_points}, "
                         f"bonus_factor={bonus_factor}, shared among "
                         f"{num_tied_teams} teams, final bonus={grade_bonus}")
                 else:
                     logger.debug(
-                        f"Team {team_id} not in master teams for grade {grade}"
-                    )
+                        f"Team {team_id_str} not in master teams for grade "
+                        f"{grade}")
 
-        logger.debug(f"Final master grade bonus for team {team_id}: "
+        logger.debug(f"Final master grade bonus for team {team_id_str}: "
                      f"{master_grade_bonus} for grades {master_grades}")
 
         return master_grade_bonus, master_grades
@@ -521,16 +562,111 @@ class ScoreCalculator:
         # Filter out solo entries
         team_ascents_df = self.ascents_df[~self.ascents_df["is_solo"]].copy()
 
+        # Ensure team_id is always a string
+        team_ascents_df["team_id"] = team_ascents_df["team_id"].astype(str)
+
         logger.info("Starting Marathon score calculation with "
                     f"{len(team_ascents_df)} ascents")
 
-        # 1. Calculate unique ascents (routes climbed by only one person
-        # across all teams)
-        self.unique_routes = await self._get_unique_ascents(team_ascents_df)
+        # Get teams from the DataFrame
+        teams = team_ascents_df[["team_id",
+                                 "team_name"]].dropna().drop_duplicates()
 
-        # 2. Find teams with most ascents per grade (for master grade bonus)
+        # Create mappings for team subcategory and validity
+        team_subcategories = {}
+        valid_team_ids = set()
+        invalid_teams_count = 0
+
+        # Filter for valid teams
+        valid_teams_rows = []
+        for _, team_row in teams.iterrows():
+            team_id = team_row["team_id"]
+            # Get team from database to determine subcategory and validity
+            team = get_team_by_id(self.session, team_id)
+            if team:
+                # Check if team is valid
+                if not team.is_valid:
+                    invalid_teams_count += 1
+                    logger.info(
+                        f"Excluding invalid team: {team.name} (ID: {team_id})")
+                    continue
+
+                valid_team_ids.add(str(team_id))
+                valid_teams_rows.append(team_row)
+                team_subcategories[team_id] = team.marathon_subcategory
+
+        # Replace teams DataFrame with only valid teams
+        teams = pd.DataFrame(valid_teams_rows)
+
+        # Log the number of invalid teams excluded
+        if invalid_teams_count > 0:
+            logger.info(
+                f"Excluded {invalid_teams_count} invalid teams from marathon scoring"
+            )
+
+        # If no valid teams remain, return empty results
+        if teams.empty:
+            logger.warning("No valid teams found for marathon scoring")
+            return [], []
+
+        # Filter ascents DataFrame to include only valid teams
+        valid_team_ascents_df = team_ascents_df[
+            team_ascents_df["team_id"].isin(valid_team_ids)]
+
+        # Log how many ascents were filtered out due to invalid teams
+        filtered_out_ascents = len(team_ascents_df) - len(
+            valid_team_ascents_df)
+        if filtered_out_ascents > 0:
+            logger.info(
+                f"Filtered out {filtered_out_ascents} ascents from invalid teams"
+            )
+
+        # 1. Calculate unique ascents (routes climbed by only one person
+        # across all teams) - use only valid teams' ascents
+        self.unique_routes = await self._get_unique_ascents(
+            valid_team_ascents_df)
+
+        # Create a filtered DataFrame that respects subcategories
+        # for master grade calculation
+        filtered_ascents_dfs = []
+
+        for _, team_row in teams.iterrows():
+            team_id = team_row["team_id"]
+            subcategory = team_subcategories.get(team_id)
+            team_df = valid_team_ascents_df[valid_team_ascents_df["team_id"] ==
+                                            team_id]
+
+            if subcategory:
+                # Create mask of valid ascents for subcategory
+                valid_ascents_mask = team_df.apply(
+                    lambda row: self._is_route_valid_for_subcategory(
+                        row["grade"], subcategory),
+                    axis=1)
+
+                # Apply filter
+                filtered_team_df = team_df[valid_ascents_mask]
+
+                # Add to filtered dataset
+                if not filtered_team_df.empty:
+                    filtered_ascents_dfs.append(filtered_team_df)
+            else:
+                # No subcategory filtering needed
+                if not team_df.empty:
+                    filtered_ascents_dfs.append(team_df)
+
+        # Combine filtered dataframes
+        if filtered_ascents_dfs:
+            filtered_ascents_df = pd.concat(filtered_ascents_dfs)
+        else:
+            filtered_ascents_df = pd.DataFrame(columns=team_ascents_df.columns)
+
+        logger.info(
+            f"Created filtered DataFrame with {len(filtered_ascents_df)} "
+            f"ascents for master grade calculation")
+
+        # 2. Find teams with most ascents per grade using the filtered data
         self.master_grade_teams = await self._get_master_grade_teams(
-            team_ascents_df)
+            filtered_ascents_df)
         logger.debug(
             f"Populated master_grade_teams: {self.master_grade_teams}")
 
@@ -538,27 +674,15 @@ class ScoreCalculator:
         team_scores = []
         detailed_calculations = []
 
-        # Get teams from the DataFrame
-        teams = team_ascents_df[["team_id",
-                                 "team_name"]].dropna().drop_duplicates()
-
-        # Create a mapping of team_id to subcategory
-        team_subcategories = {}
-        for _, team_row in teams.iterrows():
-            team_id = team_row["team_id"]
-            # Get team from database to determine subcategory
-            team = get_team_by_id(self.session, team_id)
-            if team:
-                team_subcategories[team_id] = team.marathon_subcategory
-
         # Iterate through all teams
         for _, team_row in teams.iterrows():
-            team_id = team_row["team_id"]
+            team_id = str(team_row["team_id"])  # Ensure team_id is string
             team_name = team_row["team_name"]
             subcategory = team_subcategories.get(team_id)
 
-            # Filter ascents for this team
-            team_df = team_ascents_df[team_ascents_df["team_id"] == team_id]
+            # Filter ascents for this team (use valid_team_ascents_df)
+            team_df = valid_team_ascents_df[valid_team_ascents_df["team_id"] ==
+                                            team_id]
 
             # Filter out ascents that don't match the team's subcategory
             if subcategory:
