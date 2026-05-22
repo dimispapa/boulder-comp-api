@@ -3,6 +3,7 @@ FastAPI router for the scoring endpoints.
 """
 import csv
 import io
+import zipfile
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
 from fastapi.responses import StreamingResponse
 from typing import Optional
@@ -366,21 +367,20 @@ async def get_competition_rankings(comp_id: str,
 async def export_competition_results(comp_id: str,
                                      session: Session = Depends(get_db)):
     """
-    Export all rankings for a competition as a single CSV download.
+    Export all rankings for a competition as a zip of three CSV files:
+    - marathon_lt_6B.csv
+    - marathon_gte_6B.csv
+    - boulder_beasts.csv
 
-    Returns a CSV containing three sections:
-    - Marathon rankings grouped by subcategory (lt_6B, gte_6B)
-    - Boulder Beasts individual rankings
-
-    Each section has its own header row and includes team/participant names
-    joined from the related tables.
+    Each CSV includes team/participant names joined from related tables.
+    Only files with data are included in the zip.
 
     Args:
         comp_id (str): ID of the competition
         session (Session): Database session
 
     Returns:
-        StreamingResponse: CSV file download
+        StreamingResponse: ZIP file download
     """
     comp = get_competition_by_id(session, comp_id)
     if not comp:
@@ -407,14 +407,10 @@ async def export_competition_results(comp_id: str,
                             detail=f"No rankings found for competition "
                             f"{comp_id}. Run /calculate first.")
 
-    buffer = io.StringIO()
-    writer = csv.writer(buffer)
-
     marathon_headers = [
-        "rank", "team_name", "subcategory", "team_size", "base_score",
-        "volume_bonus", "team_ascent_bonus", "unique_ascent_bonus",
-        "master_grade_bonus", "remote_boulder_bonus", "total_score",
-        "normalized_total_score"
+        "rank", "team_name", "team_size", "base_score", "volume_bonus",
+        "team_ascent_bonus", "unique_ascent_bonus", "master_grade_bonus",
+        "remote_boulder_bonus", "total_score", "normalized_total_score"
     ]
 
     by_subcategory: dict = {}
@@ -423,37 +419,47 @@ async def export_competition_results(comp_id: str,
                else "unspecified")
         by_subcategory.setdefault(sub, []).append((ranking, team_name))
 
-    for subcategory, rows in by_subcategory.items():
-        writer.writerow([f"# Marathon — {subcategory}"])
-        writer.writerow(marathon_headers)
+    def marathon_csv(rows) -> str:
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(marathon_headers)
         for ranking, team_name in rows:
-            writer.writerow([
-                ranking.rank, team_name, subcategory, ranking.team_size,
-                ranking.base_score, ranking.volume_bonus,
-                ranking.team_ascent_bonus, ranking.unique_ascent_bonus,
-                ranking.master_grade_bonus, ranking.remote_boulder_bonus,
-                ranking.total_score, ranking.normalized_total_score
+            w.writerow([
+                ranking.rank, team_name, ranking.team_size, ranking.base_score,
+                ranking.volume_bonus, ranking.team_ascent_bonus,
+                ranking.unique_ascent_bonus, ranking.master_grade_bonus,
+                ranking.remote_boulder_bonus, ranking.total_score,
+                ranking.normalized_total_score
             ])
-        writer.writerow([])
+        return buf.getvalue()
 
-    if boulder_rows:
-        writer.writerow(["# Boulder Beasts"])
-        writer.writerow([
+    def boulder_csv(rows) -> str:
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow([
             "rank", "first_name", "last_name", "top_5_routes_score",
             "total_score", "top_5_routes"
         ])
-        for ranking, first_name, last_name in boulder_rows:
-            writer.writerow([
+        for ranking, first_name, last_name in rows:
+            w.writerow([
                 ranking.rank, first_name or "", last_name or "",
                 ranking.top_5_routes_score, ranking.total_score,
                 ", ".join(ranking.top_5_routes or [])
             ])
+        return buf.getvalue()
 
-    buffer.seek(0)
-    filename = f"{comp.name.replace(' ', '_')}_results.csv"
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for subcategory, rows in by_subcategory.items():
+            zf.writestr(f"marathon_{subcategory}.csv", marathon_csv(rows))
+        if boulder_rows:
+            zf.writestr("boulder_beasts.csv", boulder_csv(boulder_rows))
+
+    zip_buffer.seek(0)
+    filename = f"{comp.name.replace(' ', '_')}_results.zip"
     return StreamingResponse(
-        iter([buffer.getvalue()]),
-        media_type="text/csv",
+        iter([zip_buffer.getvalue()]),
+        media_type="application/zip",
         headers={"Content-Disposition": f"attachment; filename={filename}"})
 
 
