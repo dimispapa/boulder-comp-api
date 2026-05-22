@@ -3,7 +3,7 @@
   "description": "API service for the Bouldering Festival Competition app, providing score calculation and 27crags data scraping capabilities.",
   "repository": "https://github.com/dimispapa/boulder-comp-api",
   "keywords": ["python", "fastapi", "celery", "redis", "sqlmodel", "neon"],
-  "addons": ["heroku-redis:hobby-dev"],
+  "addons": ["heroku-redis:mini"],
   "env": {
       "NEON_DB_URL": {
         "description": "Your Neon DB connection URL",

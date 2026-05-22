@@ -1,9 +1,12 @@
 """
 FastAPI router for the scoring endpoints.
 """
+import csv
+import io
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
+from fastapi.responses import StreamingResponse
 from typing import Optional
-from sqlmodel import Session
+from sqlmodel import Session, select
 from scoring.models import ScoreCalculationRequest
 from dotenv import load_dotenv
 from database.management.base import get_db
@@ -13,7 +16,10 @@ from database.crud.competitions import (get_competition_by_id,
                                         get_all_competitions)
 from utils.loggers import logger
 from tasks.scoring_tasks import calculate_scores
-from database.models.competitions import MarathonSubCategory
+from database.models.competitions import (MarathonSubCategory, Team,
+                                          Participant)
+from database.models.accounts import User
+from database.models.scoring import (MarathonRanking, BoulderBeastsRanking)
 
 # Load environment variables
 load_dotenv()
@@ -354,6 +360,101 @@ async def get_competition_rankings(comp_id: str,
         logger.error(f"Failed to get rankings: {str(e)}")
         raise HTTPException(status_code=500,
                             detail=f"Failed to get rankings: {str(e)}")
+
+
+@router.get("/export/{comp_id}")
+async def export_competition_results(comp_id: str,
+                                     session: Session = Depends(get_db)):
+    """
+    Export all rankings for a competition as a single CSV download.
+
+    Returns a CSV containing three sections:
+    - Marathon rankings grouped by subcategory (lt_6B, gte_6B)
+    - Boulder Beasts individual rankings
+
+    Each section has its own header row and includes team/participant names
+    joined from the related tables.
+
+    Args:
+        comp_id (str): ID of the competition
+        session (Session): Database session
+
+    Returns:
+        StreamingResponse: CSV file download
+    """
+    comp = get_competition_by_id(session, comp_id)
+    if not comp:
+        raise HTTPException(status_code=404,
+                            detail=f"Competition {comp_id} not found")
+
+    marathon_rows = session.exec(
+        select(MarathonRanking, Team.name).join(
+            Team, Team.id == MarathonRanking.team_id).where(
+                MarathonRanking.competition_id == comp_id).order_by(
+                    MarathonRanking.marathon_subcategory,
+                    MarathonRanking.rank)).all()
+
+    boulder_rows = session.exec(
+        select(BoulderBeastsRanking, User.first_name, User.last_name).join(
+            Participant,
+            Participant.id == BoulderBeastsRanking.participant_id).join(
+                User, User.id == Participant.user_id, isouter=True).where(
+                    BoulderBeastsRanking.competition_id == comp_id).order_by(
+                        BoulderBeastsRanking.rank)).all()
+
+    if not marathon_rows and not boulder_rows:
+        raise HTTPException(status_code=404,
+                            detail=f"No rankings found for competition "
+                            f"{comp_id}. Run /calculate first.")
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+
+    marathon_headers = [
+        "rank", "team_name", "subcategory", "team_size", "base_score",
+        "volume_bonus", "team_ascent_bonus", "unique_ascent_bonus",
+        "master_grade_bonus", "remote_boulder_bonus", "total_score",
+        "normalized_total_score"
+    ]
+
+    by_subcategory: dict = {}
+    for ranking, team_name in marathon_rows:
+        sub = (ranking.marathon_subcategory.value if ranking.marathon_subcategory
+               else "unspecified")
+        by_subcategory.setdefault(sub, []).append((ranking, team_name))
+
+    for subcategory, rows in by_subcategory.items():
+        writer.writerow([f"# Marathon — {subcategory}"])
+        writer.writerow(marathon_headers)
+        for ranking, team_name in rows:
+            writer.writerow([
+                ranking.rank, team_name, subcategory, ranking.team_size,
+                ranking.base_score, ranking.volume_bonus,
+                ranking.team_ascent_bonus, ranking.unique_ascent_bonus,
+                ranking.master_grade_bonus, ranking.remote_boulder_bonus,
+                ranking.total_score, ranking.normalized_total_score
+            ])
+        writer.writerow([])
+
+    if boulder_rows:
+        writer.writerow(["# Boulder Beasts"])
+        writer.writerow([
+            "rank", "first_name", "last_name", "top_5_routes_score",
+            "total_score", "top_5_routes"
+        ])
+        for ranking, first_name, last_name in boulder_rows:
+            writer.writerow([
+                ranking.rank, first_name or "", last_name or "",
+                ranking.top_5_routes_score, ranking.total_score,
+                ", ".join(ranking.top_5_routes or [])
+            ])
+
+    buffer.seek(0)
+    filename = f"{comp.name.replace(' ', '_')}_results.csv"
+    return StreamingResponse(
+        iter([buffer.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"})
 
 
 @router.get("/competitions", response_model=dict)
